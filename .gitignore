@@ -6,7 +6,7 @@
 !.gitignore
 !.Rhistory
 !.Rproj.user
-!index.Rdm
+!index.Rmd
 !02_Data_input_and_cleaning.Rmd
 !03_Network_construction_and_module_detection.Rmd
 !04_Relating_modules_to_external_clinical_traits_and_identifying_important_genes.Rmd
