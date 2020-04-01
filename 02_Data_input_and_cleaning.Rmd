@@ -1,0 +1,421 @@
+# Data input and cleaning {#data_input_and_cleaning}
+
+<!-- ## Loading libraries, setting variables, creating directories  -->
+```{r Code chunk 1 admin, include=FALSE}
+# Display the current working directory
+getwd();
+# If necessary, change the path below to the directory where the data files are stored. 
+# "." means current directory. On Windows use a forward slash / instead of the usual \.
+workingDir = ".";
+setwd(workingDir); 
+# Load the WGCNA package
+library(WGCNA);
+library(tidyverse)
+library(readxl)
+# The following setting is important, do not omit.
+options(stringsAsFactors = FALSE);
+```
+## Parameters 
+Below are some important parameter settings. For this report the settings below has been used but we have tested to vry these to see hwo the results are affected
+
+```{r Code chunk 1.05}
+#name of analysis; p =power, mms = minModuleSize, mch = mergeCutHeight
+#Dont forget to rename "book_filename" and "output_dir" in _bookdown.yml
+power_to_use = 6
+min_module_size = 100
+merge_cut_height = 0.25
+#Set significance threshold to use when selecting interesting modules and outcomes in "04-Relating...""
+significance_thresh = 0.05
+name_of_analysis <- paste("_only_preterm_and_5_outc__p_",power_to_use,"_mms_",min_module_size,"_mch_",merge_cut_height,sep="")
+```
+
+```{r Code chunk 1.1 HAL settings of important variables, include=FALSE}
+dir.create("./saved_data")
+dir.create(paste("./plots",name_of_analysis, sep=""))
+dir.create(paste("./out",name_of_analysis, sep=""))
+dir.create(paste("./out",name_of_analysis,"/strong_corr_with_mod_and_clin_out/from_modules_positively_corr_to_clin_out", sep=""), recursive = T)
+dir.create(paste("./out",name_of_analysis,"/strong_corr_with_mod_and_clin_out/from_modules_negatively_corr_to_clin_out", sep=""), recursive = T)
+dir.create(paste("./out",name_of_analysis,"/strong_corr_with_mod_and_clin_out/both", sep=""), recursive = T)
+dir.create(paste("./out",name_of_analysis,"/hubgenes", sep=""))
+dir.create(paste("./out",name_of_analysis,"/hubgenes/GeneResultsNetworkScreening", sep=""))
+dir.create(paste("./out",name_of_analysis,"/hubgenes/MEResultsNetworkScreening", sep=""))
+dir.create(paste("./out",name_of_analysis,"/hubgenes/kWithin_filt", sep=""))
+dir.create(paste("./out",name_of_analysis,"/hubgenes/kWithin_all", sep=""))
+dir.create(paste("./out",name_of_analysis,"/hubgenes_for_all_modules", sep=""))
+dir.create(paste("./out",name_of_analysis,"/hubgenes_for_all_modules/kWithin_filt", sep=""))
+dir.create(paste("./out",name_of_analysis,"/hubgenes_for_all_modules/kWithin_all", sep=""))
+
+
+#set variables to recode term and preterm
+PT <- "1"
+PTc <- "2"
+T_PT <- "3"
+Tc <- "4"
+#specify names of clinical outcomes to remove
+names.remove <- c("Sepsis  d4-d10","ROPtreated","NEC_1","Any IVH(vs no)","BPD(O2 36w)","LOS")
+#specify short list of names to keep as in manuscript
+names.keep <- c("Spont_labor","HCA_nar","FIRS","Sort_infl_birth","S100As_2") #"T_PT"
+```
+
+<!-- ## Loading expression data -->
+
+```{r Code chunk 1.2 HAL read expression file, include=FALSE} 
+#, include=FALSE, , message = FALSE
+monoc_exp_fn <- "./data/my filtering-any_group_more_than_10pct_above_2.xlsx";
+#Read in the monocyte data set, leave out last columns which are annotations
+monoc_exp <- read_excel(monoc_exp_fn,sheet="prev+no strange(sRNA,RP etc.)")[,-c(71:74)];  #genes = rows and samples = columns
+# Take a quick look at what is in the data set:
+dim(monoc_exp);
+names(monoc_exp);
+head(monoc_exp, n=5)
+tail(monoc_exp, n=5)
+str(monoc_exp)
+monoc_exp[1:5,1:5]
+```
+
+
+<!-- # ```{r 1.25 Reading in 500 genes} -->
+<!-- #  fn_high_low_genes_500 <- "./data/S100_genes_PTc_Tt_q0_00212_p1_0144e-4_n500.2.csv"; -->
+<!-- #  #Read in the monocyte data set, leave out last columns which are annotations -->
+<!-- # high_low_genes_500 <- read.csv(fn_high_low_genes_500, header = FALSE) -->
+<!-- # #high_low_genes_500 -->
+<!-- # monoc_exp <- monoc_exp %>% -->
+<!-- #       filter(gene_short_name %in% high_low_genes_500$V1) -->
+<!-- # ``` -->
+
+
+## Transforming and filtering data
+
+```{r Code chunk 1.3 Filtering specific to expression file, include=FALSE}
+##remove second measuere samples
+monoc_exp0.0 <- monoc_exp %>% dplyr::select(-contains("-2"))
+```
+
+```{r  Code chunk 2 Transpose expression file, include=FALSE}
+dat_expr0.0 = as.data.frame(t(monoc_exp0.0[, -1]));
+names(dat_expr0.0) = monoc_exp0.0$gene_short_name;
+rownames(dat_expr0.0) = names(monoc_exp0.0[, -1])
+dat_expr0.0[1:5,1:5]
+
+alarmins <- grep("S100A+", monoc_exp$gene_short_name, perl=TRUE, value=TRUE)
+```
+
+```{r Code chunk 3 Check expresson data for genes and samples with too many missing values, include=FALSE}
+gsg = goodSamplesGenes(dat_expr0.0, verbose = 3);
+gsg$allOK
+```
+
+```{r Code chunk 4 If Code chunk 4 returns FALSE the offending genes and samples are removed from the data, include=FALSE}
+if (!gsg$allOK)
+{
+  # Optionally, print the gene and sample names that were removed:
+  if (sum(!gsg$goodGenes)>0) 
+    printFlush(paste("Removing genes:", paste(names(dat_expr0.0)[!gsg$goodGenes], collapse = ", ")));
+  if (sum(!gsg$goodSamples)>0) 
+    printFlush(paste("Removing samples:", paste(rownames(dat_expr0.0)[!gsg$goodSamples], collapse = ", ")));
+  # Remove the offending genes and samples from the data:
+  dat_expr0.0 = dat_expr0.0[gsg$goodSamples, gsg$goodGenes]
+}
+```
+
+## Clustering samples based on gene expression data 
+
+This is useful to see if there are samples with extreme profiles that should maybe be removed
+See Figure \@ref(fig:fig1)
+
+```{r fig1, echo=FALSE, fig.cap="Cluster the samples to see if there are samples with extreme profiles (ouliers)"}
+#Code chunk 5_
+sampleTree = hclust(dist(dat_expr0.0), method = "average");
+# Plot the sample tree: Open a graphic output window of size 12 by 9 inches
+# The user should change the dimensions if the window is too large or too small.
+#sizeGrWindow(12,9)
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(sampleTree, main = "Sample clustering to detect outliers", sub="", xlab="", cex.lab = 1.5, 
+     cex.axis = 1.5, cex.main = 2)
+cut_height=120
+# Plot a line to show the cut
+abline(h = cut_height, col = "red");
+```
+
+```{r Code chunk 5, include=FALSE}
+#Code chunk 5_
+sampleTree = hclust(dist(dat_expr0.0), method = "average");
+# Plot the sample tree: Open a graphic output window of size 12 by 9 inches
+# The user should change the dimensions if the window is too large or too small.
+#sizeGrWindow(12,9)
+tiff(paste("./plots",name_of_analysis,"/01_dendrogram.tif", sep=""), height = 9, width = 9, units = 'in', res=300) #
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(sampleTree, main = "Sample clustering to detect outliers", sub="", xlab="", cex.lab = 1.5, 
+     cex.axis = 1.5, cex.main = 2)
+cut_height=120
+# Plot a line to show the cut
+abline(h = cut_height, col = "red");
+dev.off()
+```
+
+Visualize a height cut that will remove any offending sample and use a branch cut at that height
+
+```{r Code chunk 6 Choose a height cut that will remove any offending sample and use a branch cut at that height, echo=FALSE}
+# Determine cluster under the line
+clust = cutreeStatic(sampleTree, cutHeight = cut_height, minSize = 10)
+#table(clust)
+# clust 1 contains the samples we want to keep.
+keepSamples = (clust==1)
+dat_expr0.1 = dat_expr0.0[keepSamples, ]
+nGenes = ncol(dat_expr0.1)
+nSamples = nrow(dat_expr0.1)
+#dat_expr0.1[,1:5]
+#dim(dat_expr0.1)
+```
+
+<!-- ## Loading, filtering and transforming trait/outcome data -->
+
+```{r Code chunk 7 Read in the trait data, include=FALSE}
+clin_out_fn <- "./data/outcomes-monocyte project.xlsx";
+#Read in the clincical outcome data set (has samples as columns and outcomes as rows)
+clin_out <- read_excel(clin_out_fn); #, col_names = FALSE
+names(clin_out)
+clin_out[1:5,1:5]
+#last five samples (columns) have no data
+clin_out[1:20,95:100]
+```
+
+```{r Code chunk 7.1 Filter clinical outcome data, include=FALSE}
+# remove columns that hold information we do not need.
+clin_out0.0 = clin_out[, -c(1,96:100)];
+# Gime shorter names to clinical outcomes
+new_names <- c("T_PT","GA_days","BW","SGA","Sex","Twin","Spont_labor","Sectio","PTL","pPROM","ClinChorio","HCA_nar","FIRS","Preekl","Hemor_mother","Sort_infl_birth","Sepsis  d4-d10","IVH grade","NEC_1","BPD(O2 36w)","PDAtreated","ROPtreated","Death","Any IVH(vs no)","IVH 3-4","LOS","clotting","storage","S100As","S100As_2","NA","NA","NA","NA","NA")
+clin_out0.0 [,1] <- new_names
+#Take a look
+clin_out0.0[1:5,1:5]
+##remove second measuere samples
+clin_out0.0  <- clin_out0.0  %>% dplyr::select(-contains("-2"))
+clin_out0.0[1:5,1:5]
+
+
+#transpose
+clin_out0.1 = as.data.frame(t(clin_out0.0[,-1]));
+clin_out0.1[1:5,1:5]
+names(clin_out0.1) = clin_out0.0$"Sample id";
+clin_out0.1[1:5,1:5]
+dim(clin_out0.1)
+names(clin_out0.1)
+
+#Recode term/preterm
+clin_out0.1$"T_PT" <- as.character(clin_out0.1$"T_PT")
+clin_out0.1$"T_PT"[which(clin_out0.1$"T_PT"=="PT")] <- PT
+clin_out0.1$"T_PT"[which(clin_out0.1$"T_PT"=="PTc")] <- PTc
+clin_out0.1$"T_PT"[which(clin_out0.1$"T_PT"=="T/PT")] <- T_PT
+clin_out0.1$"T_PT"[which(clin_out0.1$"T_PT"=="Tc")] <- Tc
+clin_out0.1$"T_PT" <- as.numeric(clin_out0.1$"T_PT")
+clin_out0.1 = clin_out0.1[,-c(31:35)]
+clin_out0.1[1:5,1:5]
+
+#Remove PTc (preterm?) samples since not used in paper
+clin_out0.2 <- clin_out0.1 %>%
+  rownames_to_column('sampID') %>%
+  filter(T_PT == 2) %>%
+  column_to_rownames('sampID')
+clin_out0.2[1:5,1:5]
+clin_out0.2[1:5,]
+clin_out0.3  <- clin_out0.2[, names.keep]
+clin_out0.3[1:5,1:5]
+dim(clin_out0.3)
+names(clin_out0.3)
+
+```
+
+<!-- ## Matching clinical outcome samples to the expression samples -->
+
+```{r Code chunk 7.2  Match the clinical outcome samples to the expression samples, include=FALSE}
+# Form a data frame analogous to expression data that will hold the clinical traits.
+#expression data is in dat_expr0.1, clinical outcome is in clin_out0.3
+exp_samples = rownames(dat_expr0.1);
+outcome_samples = row.names(clin_out0.3);
+length(exp_samples)
+length(outcome_samples)
+# at which row do outcome samples match in the expression data; Note if there are more samples in expression data, do it the other wa around
+clin_out1.0 <- clin_out0.3[outcome_samples %in% exp_samples,]
+dat_expr1.0 <- dat_expr0.1[exp_samples %in% outcome_samples,]
+dim(clin_out1.0 )
+dim(dat_expr1.0)
+dat_expr1.0[1:5,1:5]
+clin_out1.0[1:5,1:5]
+
+#clin_out1.0 columns ar characters. Needs to be converted to integers
+str(data.frame(as.numeric(as.matrix(clin_out1.0))))
+names(clin_out1.0)
+is(as.integer(clin_out1.0$"Spont_labor"))
+clin_out1.1 <- transform(clin_out1.0, Spont_labor = as.numeric(Spont_labor), 
+          HCA_nar = as.numeric(HCA_nar), 
+          FIRS = as.numeric(FIRS), 
+          Sort_infl_birth = as.numeric(Sort_infl_birth), 
+          S100As_2 = as.numeric(S100As_2))
+
+
+collectGarbage();
+```
+
+## Visualizing how the clinical traits relate to the sample dendrogram
+
+See Figure \@ref(fig:fig2)
+
+```{r fig2, echo=FALSE, fig.cap="Visualize how the clinical traits relate to the sample dendrogram"}
+# Re-cluster samples
+sampleTree2 = hclust(dist(dat_expr1.0), method = "average")
+# Convert traits to a color representation: white means low, red means high, grey means missing entry
+traitColors = numbers2colors(clin_out1.1, signed = FALSE);
+# Plot the sample dendrogram and the colors underneath.
+plotDendroAndColors(sampleTree2, traitColors,
+                    groupLabels = names(clin_out1.1), 
+                    main = "Sample dendrogram and trait heatmap")
+
+```
+
+```{r Code chunk 8 Visualize how the clinical traits relate to the sample dendrogram, include=FALSE}
+# Re-cluster samples
+sampleTree2 = hclust(dist(dat_expr1.0), method = "average")
+# Convert traits to a color representation: white means low, red means high, grey means missing entry
+traitColors = numbers2colors(clin_out1.1, signed = FALSE);
+# Plot the sample dendrogram and the colors underneath.
+tiff(paste("./plots",name_of_analysis,"/02_dendrogram_outcome.tif", sep=""), height = 9, width = 9, units = 'in', res=300) 
+plotDendroAndColors(sampleTree2, traitColors,
+                    groupLabels = names(clin_out1.1), 
+                    main = "Sample dendrogram and trait heatmap")
+
+dev.off()
+```
+
+<!-- ## Saving the relevant expression and trait data for use in the next steps of the tutorial -->
+
+```{r Code chunk 9 Save the relevant expression and trait data for use in the next steps of the tutorial, include=FALSE}
+#Filter out bad genes now so that its not done in function causing arrays of different sizes
+gGenes <- goodSamplesGenes(dat_expr1.0)$goodGenes
+#gGenes
+table(gGenes)["FALSE"]
+dat_expr1.1 <- dat_expr1.0[gGenes]
+#names(dat_expr1.1)
+#names(dat_expr0.1)
+#names(dat_expr1.0)
+dim(dat_expr1.0)
+dim(dat_expr1.1)
+# Make sure samples are ordered the same way in dat_expr and clin_out
+# This is essentiasl in for instance section 4 where moduel eigengenes are correlated angainst clinicla outcomes
+dat_expr <- dat_expr1.1[ order(row.names(dat_expr1.1)), ]
+clin_out <- clin_out1.1[ order(row.names(clin_out1.1)), ]
+```
+
+ 
+
+<!-- # ```{r r Code chunk 10 sample based on high/low S100A , include=FALSE} -->
+<!-- # ###############split clinical data -->
+<!-- # # -->
+<!-- # #Modify from here when to run high/low S100A.0 -->
+<!-- # # -->
+<!-- # #################################### -->
+<!-- # names(clin_out) -->
+<!-- # dim(clin_out) -->
+<!-- # clin_out$S100As_2 -->
+<!-- # library(data.table) -->
+<!-- # setDT(clin_out, keep.rownames = "kids")[] -->
+<!-- # #high -->
+<!-- # clin_out_high_S100A.0 <- filter(clin_out, S100As_2 == 1)[,-1] -->
+<!-- # row.names(clin_out_high_S100A.0) <- filter(clin_out, S100As_2 == 1)[,1] -->
+<!-- # #Spont_labor and S100As_2 needs to be remove since they dont vary any longer -->
+<!-- # clin_out_high_S100A <- clin_out_high_S100A.0[,-c(1,5)] -->
+<!-- # clin_out_high_S100A -->
+<!-- # #low -->
+<!-- # clin_out_low_S100A.0 <- filter(clin_out, S100As_2 == 0)[,-1] -->
+<!-- # row.names(clin_out_low_S100A.0) <- filter(clin_out, S100As_2 == 0)[,1] -->
+<!-- # #Spont_labor and S100As_2 needs to be remove since they dont vary any longer -->
+<!-- # clin_out_low_S100A <- clin_out_low_S100A.0[,-c(4,5)] -->
+<!-- # clin_out_low_S100A -->
+<!-- # ##############split expression data -->
+<!-- # dat_expr[1:5,1:5] -->
+<!-- # dat_expr_high_S100A <- dat_expr[filter(clin_out, S100As_2 == 1)[,1],] -->
+<!-- # dat_expr_low_S100A <- dat_expr[filter(clin_out, S100As_2 == 0)[,1],] -->
+<!-- # ##############reset dat_expr clin_out to high or low -->
+<!-- # dat_expr <- dat_expr_high_S100A -->
+<!-- # #dat_expr <- dat_expr_low_S100A -->
+<!-- # clin_out <- clin_out_high_S100A -->
+<!-- # #clin_out <- clin_out_low_S100A -->
+<!-- # # -->
+<!-- # ``` -->
+<!-- # -->
+<!-- #  -->
+<!-- # Spont_labor and S100As_2 have been removed from clin_out_high since they are all ones -->
+<!-- #  -->
+<!-- # FIRS Sort_infl_birth and S100As_2 has been removed from clin_out_low since they are all 0 -->
+<!-- #  -->
+<!-- # ```{r Code chunk 10.1 2 Check expresson data for genes and samples with too many missing values, include=FALSE} -->
+<!-- #  gsg = goodSamplesGenes(dat_expr, verbose = 3); -->
+<!-- #  gsg$allOK -->
+<!-- # ``` -->
+<!-- #  -->
+<!-- # ```{r Code chunk 10.2 2 If Code chunk 4 returns FALSE the offending genes and samples are removed from the data, include=FALSE} -->
+<!-- #  if (!gsg$allOK) -->
+<!-- #  { -->
+<!-- #   #Optionally, print the gene and sample names that were removed: -->
+<!-- #    if (sum(!gsg$goodGenes)>0) -->
+<!-- #      printFlush(paste("Removing genes:", paste(names(dat_expr)[!gsg$goodGenes], collapse = ", "))); -->
+<!-- #    if (sum(!gsg$goodSamples)>0) -->
+<!-- #      printFlush(paste("Removing samples:", paste(rownames(dat_expr)[!gsg$goodSamples], collapse = ", "))); -->
+<!-- #   #Remove the offending genes and samples from the data: -->
+<!-- #    dat_expr = dat_expr[gsg$goodSamples, gsg$goodGenes] -->
+<!-- #  } -->
+<!-- # ``` -->
+
+
+## Same visualisations with only selected samples 
+
+```{r Code chunk 11 Save the relevant expression and trait data for use in the next steps of the tutorial, include=FALSE}
+save(name_of_analysis, file ="./saved_data/name_of_analysis.RData")
+save(dat_expr, clin_out, power_to_use, min_module_size, merge_cut_height, significance_thresh, file = paste("./saved_data/01",name_of_analysis,"_data_input.RData", sep=""))
+```
+
+See Figure \@ref(fig:fig201)
+
+```{r fig201, echo=FALSE, fig.cap="Cluster the samples to see if there are samples with extreme profiles (ouliers). Only samples used included"}
+#Code chunk 5_
+sampleTree = hclust(dist(dat_expr), method = "average");
+# Plot the sample tree: Open a graphic output window of size 12 by 9 inches
+# The user should change the dimensions if the window is too large or too small.
+#sizeGrWindow(12,9)
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(sampleTree, main = "Sample clustering to detect outliers", sub="", xlab="", cex.lab = 1.5, 
+     cex.axis = 1.5, cex.main = 2)
+cut_height=120
+# Plot a line to show the cut
+abline(h = cut_height, col = "red")
+```
+
+See Figure \@ref(fig:fig202)
+
+```{r fig202, echo=FALSE, fig.cap="Visualize how the clinical traits relate to the sample dendrogram. Only samples used included"}
+# Re-cluster samples
+sampleTree2 = hclust(dist(dat_expr), method = "average")
+# Convert traits to a color representation: white means low, red means high, grey means missing entry
+traitColors = numbers2colors(clin_out, signed = FALSE);
+# Plot the sample dendrogram and the colors underneath.
+plotDendroAndColors(sampleTree2, traitColors,
+                    groupLabels = names(clin_out), 
+                    main = "Sample dendrogram and trait heatmap")
+
+```
+
+```{r}
+dim(dat_expr)
+dim(clin_out)
+```
+
+
+
+
+
+
+
+
+

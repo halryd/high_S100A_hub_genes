@@ -1,0 +1,820 @@
+# Relating modules to external clinical traits and identifying important genes
+
+```{r Code chunk 1 4, include=FALSE}
+# Display the current working directory
+getwd();
+# If necessary, change the path below to the directory where the data files are stored. 
+# "." means current directory. On Windows use a forward slash / instead of the usual \.
+workingDir = ".";
+setwd(workingDir); 
+# Load the WGCNA package
+library(WGCNA)
+library(limma)
+library(tidyverse)
+
+# The following setting is important, do not omit.
+options(stringsAsFactors = FALSE);
+# Load the data saved in the first part
+lnames = load(file = "saved_data/name_of_analysis.RData");
+lnames
+lnames = load(file = paste("saved_data/01",name_of_analysis,"_data_input.RData", sep=""));
+lnames
+# Load network data saved in the second part.
+lnames = load(file = paste("saved_data/02",name_of_analysis,"_networkConstruction_auto.RData", sep=""));
+lnames
+```
+
+## Calculate the eigengenes of the modules
+
+An eigengene of a module can be considered a representative of its gene expression profiles.It is defined as the first principal component of a given module. Below the eigengenes are calculated and then their correlations with the traits.
+
+```{r Code chunk 2 4, include=FALSE}
+# Define numbers of genes and samples
+nGenes = ncol(dat_expr);
+nSamples = nrow(clin_out);
+# Recalculate MEs with color labels
+MEs0 = moduleEigengenes(dat_expr, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+#moduleTraitCor is a df with correlations of eigengenes and traits
+moduleTraitCor = cor(MEs, clin_out, use = "p");
+#moduleTraitCor = biserial.cor(MEs, clin_out)
+#p-values of eigengene trait correlation
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples)
+```
+
+
+## Eigengene--clinical-outcome correlation visualized in heatmap
+
+In the heatmap plot of Figure \@ref(fig:fig5) the correlation and significance of the eigengenes and the clinical outcomes have been visualized.
+
+
+```{r fig5, fig.cap="A table of correlation values and p-values between module eigengenes and clinical outcomes visualzed as a heatmap.", echo=FALSE}
+# Will display correlations and their p-values
+textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
+                    signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(6, 10, 3, 3));
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = names(clin_out),
+               yLabels = names(MEs),
+               ySymbols = names(MEs),
+               colorLabels = FALSE,
+               colors = greenWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.7,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"))
+```
+
+
+
+
+```{r Code chunk 3 4, include=FALSE}
+tiff(paste("./plots",name_of_analysis,"/05_correlation_heatmapplot.tif", sep=""), height = 9, width = 9, units = 'in', res=300) #
+#sizeGrWindow(10,6)
+# Will display correlations and their p-values
+textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
+                    signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(6, 10, 3, 3));
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = names(clin_out),
+               yLabels = names(MEs),
+               ySymbols = names(MEs),
+               colorLabels = FALSE,
+               colors = greenWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.7,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"))
+dev.off()
+```
+
+### Subset the module-trait datat frame so that only rows and cols with at least on significant value is kept. (Maybe obsolete?)
+```{r Code chunk 3.5 4, include=FALSE}
+library(dplyr)
+library(tibble)  # for `rownames_to_column` and `column_to_rownames`
+# moduleTraitPvalue is a matrix, turn it into data frame
+moduleTraitPvalue.df <- data.frame(moduleTraitPvalue)
+#
+#subsett moduleTraitPvalue.df so that each row and col have p-value less than or equal to 0.05
+#I think maybe module_col_of_int and outcome_names_of_int should  be replaced by 
+#related_modules_and_clin_outcomes from chunk below at some places
+interestingModulesAndOutcomes <- moduleTraitPvalue.df  %>%
+    rownames_to_column('module') %>%
+    filter_all( any_vars(. <= significance_thresh)) %>%
+    column_to_rownames('module') %>% 
+    select_if(~any(. <= significance_thresh))
+
+module_col_of_int <- row.names(interestingModulesAndOutcomes)
+outcome_names_of_int <- names(interestingModulesAndOutcomes)
+
+```
+
+### Select the clinical outcome - module combinations that are significant according to Figure \@ref(fig:fig5).
+Select all combinations of negatively related modules and clin_outcomes and all combinations of positivley related modules and clin_outcomes separately.
+```{r Code chunk 3.6 4 get related_modules_and_clin_outcomes, include=FALSE}
+## Get row and column name of pvalue data.frame according to condition in R to find related modules and clinical outcomes
+significant_mod_outc_corr <- data.frame(which(moduleTraitPvalue.df<=significance_thresh,arr.ind=T))
+#make specific df the can have row names as column "module"
+significant_mod_outc_corr_rn_as_col <- data.frame(which(moduleTraitPvalue.df<=significance_thresh,arr.ind=T))
+
+# get dataframe with rows and col numbers of negative correlation 
+neg_corr <- data.frame(which(moduleTraitCor<0,arr.ind=T))
+# get dataframe with rows and col numbers of positive correlation 
+pos_corr <- data.frame(which(moduleTraitCor>0,arr.ind=T))
+#library(dplyr)
+library(data.table)
+# insert row names as column "module"
+neg_corr <- setDT(neg_corr, keep.rownames = "module")[]
+pos_corr <- setDT(pos_corr, keep.rownames = "module")[]
+significant_mod_outc_corr_rn_as_col <- setDT(significant_mod_outc_corr_rn_as_col, keep.rownames = "module")[]
+# inner join significan with negative correlation
+negatively_correlated_mod_outc <- inner_join(significant_mod_outc_corr_rn_as_col, neg_corr, by = c("row" = "row", "col" = "col"))[,-1]
+# Put rownames back in place
+row.names(negatively_correlated_mod_outc) <- inner_join(significant_mod_outc_corr_rn_as_col, neg_corr, by = c("row" = "row", "col" = "col"))[,1]
+# inner join significan with positive correlation
+positively_correlated_mod_outc <- inner_join(significant_mod_outc_corr_rn_as_col, pos_corr, by = c("row" = "row", "col" = "col"))[,-1]
+# Put rownames back in place
+row.names(positively_correlated_mod_outc) <- inner_join(significant_mod_outc_corr_rn_as_col, pos_corr, by = c("row" = "row", "col" = "col"))[,1]
+
+#negatively_correlated_mod_outc
+#positively_correlated_mod_outc 
+
+##########correlated in general
+# clean up the module names
+modules_related_to_clin_out.0 <- gsub( "ME", "", as.character(row.names(moduleTraitPvalue.df[significant_mod_outc_corr[,1],])))
+modules_related_to_clin_out <- gsub( "\\.[0-9]", "", modules_related_to_clin_out.0)
+# Remove trailing numbers of clinical outcome names
+clin_out_related_to_modules <- gsub( "\\.[0-9]", "", as.character(names(moduleTraitPvalue.df[significant_mod_outc_corr[,2]])))
+related_modules_and_clin_outcomes <- cbind(modules_related_to_clin_out,clin_out_related_to_modules )
+
+##########positively correlated
+# clean up the module names
+modules_positively_related_to_clin_out.0 <- gsub( "ME", "", as.character(row.names(moduleTraitPvalue.df[positively_correlated_mod_outc[,1],])))
+modules_positively_related_to_clin_out <- gsub( "\\.[0-9]", "", modules_positively_related_to_clin_out.0)
+# Remove trailing numbers of clinical outcome names
+clin_out_positively_related_to_modules <- gsub( "\\.[0-9]", "", as.character(names(moduleTraitPvalue.df[positively_correlated_mod_outc[,2]])))
+positively_related_modules_and_clin_outcomes <- data.frame(cbind(modules_positively_related_to_clin_out,clin_out_positively_related_to_modules))
+names(positively_related_modules_and_clin_outcomes) <- c("mods_pos_cor","clin_out_pos_cor")
+##########negatively correlated
+modules_negatively_related_to_clin_out.0 <- gsub( "ME", "", as.character(row.names(moduleTraitPvalue.df[negatively_correlated_mod_outc[,1],])))
+modules_negatively_related_to_clin_out <- gsub( "\\.[0-9]", "", modules_negatively_related_to_clin_out.0)
+# Remove trailing numbers of clinical outcome names
+clin_out_negatively_related_to_modules <- gsub( "\\.[0-9]", "", as.character(names(moduleTraitPvalue.df[negatively_correlated_mod_outc[,2]])))
+negatively_related_modules_and_clin_outcomes <- data.frame(cbind(modules_negatively_related_to_clin_out,clin_out_negatively_related_to_modules))
+names(negatively_related_modules_and_clin_outcomes) <- c("mods_neg_cor","clin_out_neg_cor")
+positively_related_modules_and_clin_outcomes <- positively_related_modules_and_clin_outcomes[,c(2,1)]
+negatively_related_modules_and_clin_outcomes <- negatively_related_modules_and_clin_outcomes[,c(2,1)]
+```
+
+### The related modules and clin outcomes are displayed below:
+See Table \@ref(tab:tab1)
+
+```{r tab1, echo=F}
+library(knitr)
+#related_modules_and_clin_outcomes
+kable(positively_related_modules_and_clin_outcomes, caption="Positively related modules and clin outcomes")
+```
+
+
+See Table \@ref(tab:tab2)
+```{r tab2, echo=F}
+kable(negatively_related_modules_and_clin_outcomes, caption="Negativley related modules and clin outcomes")
+```
+
+## Calculate the correlation of genes in interesting modules with interesting clinical outcomes
+
+Calculate how individual genes correlate with clinical outcome (gene significance, GS) and with eigengene module membership, MM. Plot GS versus MM Influential genes should be found in the top right corner.
+
+```{r Code chunk 4 4 gene_module and gene_outcome correlations, include=FALSE}
+
+
+  #####################################modules#############
+  modNames = substring(names(MEs), 3)
+  #calculate the correlation between gene expressio profile and module eigengene profile
+  geneModuleMembership = as.data.frame(cor(dat_expr, MEs, use = "p"));
+  #get the p value for the module membership
+  MMPvalue = as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership), nSamples));
+  names(geneModuleMembership) = paste("MM", modNames, sep="");
+  names(MMPvalue) = paste("p.MM", modNames, sep="");
+    #####################################clin_out#############
+  #calculate the correlation between gene expression profile and trait profile 
+  geneTraitSignificance = as.data.frame(cor(dat_expr, clin_out, use = "p"));
+  #get the p value for the trait significance
+  GSPvalue = as.data.frame(corPvalueStudent(as.matrix(geneTraitSignificance), nSamples));
+  names(geneTraitSignificance) = paste("GS.", names(clin_out), sep="");
+  names(GSPvalue) = paste("p.GS.", names(clin_out), sep="")
+  
+   
+
+
+#   head(MM_MM.p_GS_GS.p.long)
+#   values_module <- gsub( "MM", "", as.character(MM_MM.p_GS_GS.p.long$module))
+#   values_module2 <- gsub( "p.MM", "", as.character(MM_MM.p_GS_GS.p.long$module2))
+#   values_clinical_outc <- gsub( "GS.", "", as.character(MM_MM.p_GS_GS.p.long$clinical_outc))
+#   values_clinical_outc2 <- gsub( "p.GS.", "", as.character(MM_MM.p_GS_GS.p.long$clinical_outc2))
+#   
+#   all.equal(values_module,values_module2)
+#   all.equal(MM_MM.p_GS_GS.p.long$module,adfadf)
+#   setdiff(MM_MM.p_GS_GS.p.long$module,adfadf)
+#   setdiff(values_module,values_module2)
+#   setdiff(c(1,2,3),c(1,0,3))
+#   head(cbind(values_module,values_module2))
+#   df_for_selecting_hubbies <- MM_MM.p_GS_GS.p.long
+#   ############
+
+
+
+# MM_MM.p_GS_GS.p.long.0 <- MM_MM.p_GS_GS.p.long[,-c(4,8)]
+# head(MM_MM.p_GS_GS.p.long.0)
+# df <- MM_MM.p_GS_GS.p.long.0 %>% 
+# filter(module == "MMturquoise") %>% 
+# filter(clinical_outc  == "GS.Spont_labor") %>%
+# filter(gene_symb  == "7SK")  %>% 
+# filter(MM.p < 0.05)
+```
+
+Make MM and GS long
+```{r 4.11 4 Make MM and GS long, include=FALSE}
+ ###########
+  MM_GS  <- data.frame(gene_symb=row.names(geneModuleMembership),geneModuleMembership,geneTraitSignificance)
+  MM.p_GS.p <- data.frame(gene_symb=row.names(geneModuleMembership),MMPvalue,GSPvalue)
+  
+  # test <- data.frame(MM_MM.p_GS_GS.p$MMturquoise,MM_MM.p_GS_GS.p$p.MMturquoise)
+  # teest2 <- gather(test,hej,hopp,names(test)) 
+  #make long MM_GS
+  MM_GS.long <- MM_GS %>% 
+    gather(module,MM,names(geneModuleMembership)) %>% 
+    gather(clinical_outc,GS,names(geneTraitSignificance))
+  dim(MM_GS.long)
+  #make long MM.p_GS.p
+  MM.p_GS.p.long <- MM.p_GS.p %>%
+   gather(module2,MM.p,names(MMPvalue)) %>% 
+    gather(clinical_outc2,GS.p,names(GSPvalue))
+  dim(MM.p_GS.p.long)
+# paste next to each other 
+MM_GS__MM.p_GS.p.long.0 <- data.frame(MM_GS.long,MM.p_GS.p.long )
+names(MM_GS__MM.p_GS.p.long.0)
+# remove some cols
+MM_GS__MM.p_GS.p.long.0.1 <- MM_GS__MM.p_GS.p.long.0 [, -c(6,7,9)]
+# reorder
+MM_GS__MM.p_GS.p.long.0.2 <- MM_GS__MM.p_GS.p.long.0.1[,c(1,2,3,6,4,5,7)]
+#remove MM and GS from values
+head(MM_GS__MM.p_GS.p.long.0.2)
+MM_GS__MM.p_GS.p.long.0.2$module <- gsub( "MM", "", as.character(MM_GS__MM.p_GS.p.long.0.2$module))
+MM_GS__MM.p_GS.p.long.0.2$clinical_outc <- gsub( "GS.", "", as.character(MM_GS__MM.p_GS.p.long.0.2$clinical_outc))
+#reorder cols
+MM_GS__MM.p_GS.p.long.0.25 <- MM_GS__MM.p_GS.p.long.0.2[,c(1,5,2,3,4,6,7)]
+#filter to see that data is same as original
+MM_GS__MM.p_GS.p.long.0.3  <- MM_GS__MM.p_GS.p.long.0.2   %>% 
+  #filter(gene_symb=="7SK") %>% 
+  filter(module=="turquoise") %>% 
+  filter(clinical_outc=="GS.Spont_labor")
+MM_GS__MM.p_GS.p.long.0.3  %>% top_n(10, MM) #
+
+```
+
+Function to validate long data compared to orig
+```{r 4.12 fuknction for testing that long data is sam as original, include=FALSE}
+# compare_vals_from_orig_and_long <- function(module_hal,clin_out,gene_name) {
+#   #orig
+#   vec.orig <- 1:4
+#   vec.orig[1] <- subset(geneModuleMembership, rownames(geneModuleMembership) == gene_name)[,module_hal]
+#   vec.orig[2] <- subset(MMPvalue, rownames(MMPvalue) == gene_name)[,paste("p.",module_hal,sep="")]
+#   vec.orig[3] <- subset(geneTraitSignificance, rownames(geneTraitSignificance) == gene_name)[,clin_out]
+#   vec.orig[4] <- subset(GSPvalue, rownames(GSPvalue) == gene_name)[,paste("p.",clin_out,sep="")]
+#   names(vec.orig) <- c("MM","MM.p","GS","GS.p")
+#   #long
+#   x <- MM_GS__MM.p_GS.p.long.0.2   %>% 
+#   filter(gene_symb==gene_name) %>% 
+#   filter(module==module_hal) %>% 
+#   filter(clinical_outc==clin_out)
+#   vec.long <- x[,c(3,4,6,7)]
+#   vec.orig
+#   vec.long 
+#   print(rbind(vec.orig,vec.long))
+#   #identical(vec.orig,vec.long )
+# }
+# names(dat_expr)
+# sample(names(dat_expr),10)
+# gene_names <- "7SK"
+# modules_hal <- "MMturquoise"
+# clin_outs <- "GS.Spont_labor"
+# #for module
+# for (i in sample(names(geneModuleMembership),5)){
+#   # for outcome
+#   for (j in sample(names(geneTraitSignificance),5)){
+#     #for gene name
+#     for (k in sample(names(dat_expr),5)){
+#       #print(i)
+#       #print(j)
+#       #print(k)
+#       compare_vals_from_orig_and_long(i,j,k)
+#     }
+#   }
+# }
+```
+
+Find interesting/central genes based on MM
+
+```{r, include=FALSE}
+# #0.3 has only for on odule and one clin out
+# head(MM_GS__MM.p_GS.p.long.0.3) 
+# dim(MM_GS__MM.p_GS.p.long.0.3) 
+# MM_GS__MM.p_GS.p.long.0.4 <- MM_GS__MM.p_GS.p.long.0.3 %>%
+#   filter(MM.p<=0.5)
+# dim(MM_GS__MM.p_GS.p.long.0.4) 
+# #############create significance column
+# significance_threshold <- 0.05
+# MM_threshold <- 0.7
+# MM_GS__MM.p_GS.p.long.0.3$signMM.p <- cut(MM_GS__MM.p_GS.p.long.0.3$MM.p,
+#                breaks = c(-Inf, significance_threshold, Inf),
+#                labels = c("turquoise", "grey"))
+# ################################# plot
+#  df.100 <- MM_GS__MM.p_GS.p.long.0.3
+#  ggplot(df.100 , aes(x=MM, y=GS)) +
+#     geom_point(alpha = 1/20, col=as.character(df.100$signMM.p)) +
+#     geom_vline(xintercept=MM_threshold, col="darkgrey") +
+#     geom_vline(xintercept=-MM_threshold, col="darkgrey")
+#    
+#     geom_point(top_n(10, MM))#, col= "grey"
+#     facet_wrap( ~ module)
+#   p <- p + labs(y = paste("Correlation with ",clinical_out,sep=""))
+#   p <- p + labs(x = "Correlation with module eigengene")
+#   p <- p + labs(title = paste("Gene-module versus gene-",clinical_out, " correlation", sep=""), subtitle = "Isolating hub genes")
+```
+## Write genes with high module membership and gene significance to file
+### Set thresholds for filtering
+```{r set_thresholds}
+#set thresholds
+significance_threshold <- 0.05
+MM_threshold <- 0.7
+GS_threshold <- 0.5
+```
+Hub-genes are defined as having a correlation with module eigen gene higher/lower than `r MM_threshold`, correlation with trait higher/lower than `r GS_threshold` and a p-value lower than `r significance_threshold`
+
+
+### Positive correlation
+```{r, include=FALSE}
+#make df names shorter
+pos_corr_list <- positively_related_modules_and_clin_outcomes
+MmGs_etc <- MM_GS__MM.p_GS.p.long.0.25
+#loop through length of list
+for (cl_oc in unique(pos_corr_list[,1])){
+  MmGs_etc.2 <- MmGs_etc %>%
+    filter(clinical_outc==cl_oc) %>% #select only one clin out
+    filter(module %in% filter(pos_corr_list,clin_out_pos_cor==cl_oc)[,2]) %>% # Select modules that correlate with that clin out
+    filter(MM.p<=significance_threshold) %>%
+    filter(GS.p<=significance_threshold) %>%
+    filter(MM>MM_threshold) %>%
+    filter(GS>GS_threshold)
+    MmGs_etc.2.sort <- MmGs_etc.2[
+  with(MmGs_etc.2, order(module, MM,decreasing = T)),]
+    fn <- paste("MM_>_",MM_threshold,"_GS>_",GS_threshold,"_p<_",significance_threshold,sep="")
+    write.csv(MmGs_etc.2.sort[,-2], file = paste("./out",name_of_analysis,"/strong_corr_with_mod_and_clin_out/from_modules_positively_corr_to_clin_out/high_MM_GS_genes_",cl_oc,"_pos_",fn,".csv",sep=""))
+    
+    #keep only genes that MM above MM_threshold
+} 
+
+```
+
+#make df names shorter
+neg_corr_list <- negatively_related_modules_and_clin_outcomes
+MmGs_etc <- MM_GS__MM.p_GS.p.long.0.25
+
+### Negative correlation
+```{r, include=FALSE}
+#make df names shorter
+neg_corr_list <- negatively_related_modules_and_clin_outcomes
+MmGs_etc <- MM_GS__MM.p_GS.p.long.0.25
+#loop through length of list
+for (cl_oc in unique(neg_corr_list[,1])){
+  MmGs_etc.2 <- MmGs_etc %>%
+    filter(clinical_outc==cl_oc) %>% #select only one clin out
+    filter(module %in% filter(neg_corr_list,clin_out_neg_cor==cl_oc)[,2]) %>% # Select modules that correlate with that clin out
+    filter(MM.p<=significance_threshold) %>%
+    filter(GS.p<=significance_threshold) %>%
+    filter(MM> MM_threshold) %>%
+    filter(GS< -GS_threshold)
+    MmGs_etc.2.sort <- MmGs_etc.2[
+  with(MmGs_etc.2, order(module, MM,decreasing = T)),]
+    fn <- paste("MM_>_",MM_threshold,"_GS<_",-GS_threshold,"_p<_",significance_threshold,sep="")
+    write.csv(MmGs_etc.2.sort[,-2], file = paste("./out",name_of_analysis,"/strong_corr_with_mod_and_clin_out/from_modules_negatively_corr_to_clin_out/high_MM_GS_genes_",cl_oc,"_neg_",fn,".csv",sep=""))
+    
+    #keep only genes that MM above MM_threshold
+} 
+
+```
+
+
+
+```{r, include=FALSE}
+## Create color coding for plots
+# df.clin_outs.0 = data.frame()
+# for (cl_oc in unique(MmGs_etc$clinical_outc)){
+#   df.mods = data.frame()
+#   for (module_of_int in unique(MmGs_etc$module) ) {#filter(pos_corr_list,clin_out_pos_cor==cl_oc)[,2]
+#     MmGs_etc.2 <- MmGs_etc %>%
+#     filter(clinical_outc==cl_oc) %>%
+#     filter(module==module_of_int)
+#      #create significance column
+# 
+#     MmGs_etc.2$MM.p.hub <- cut(MmGs_etc.2$MM.p,
+#                breaks = c(-Inf, significance_threshold, Inf),
+#                labels = c(1, 0))
+#     MmGs_etc.2$GS.p.hub <- cut(MmGs_etc.2$GS.p,
+#                breaks = c(-Inf, significance_threshold, Inf),
+#                labels = c(1, 0))
+#     MmGs_etc.2$MM.hub <- cut(MmGs_etc.2$MM,
+#                breaks = c(-Inf, MM_threshold, Inf),
+#                labels = c(0, 1))
+#     MmGs_etc.2$GS.hub <- cut(MmGs_etc.2$GS,
+#                breaks = c(-Inf, GS_threshold, Inf),
+#                labels = c(0, 1))
+#   
+#     df.mods <- rbind(df.mods,MmGs_etc.2)
+#   }
+#   #print(levels(as.factor(df.mods[,3])))
+#   df.clin_outs.0 <- rbind(df.clin_outs.0,df.mods)
+# }
+# 
+# 
+# 
+# 
+# 
+# # ggplot(mtcars, aes(wt, mpg)) + 
+# #   geom_point(aes(colour = cut(qsec, c(-Inf, 17, 19, Inf))),
+# #              size = 5) +
+# #   scale_color_manual(name = "qsec",
+# #                      values = c("(-Inf,17]" = "black",
+# #                                   "(17,19]" = "yellow",
+# #                                   "(19, Inf]" = "red"),
+# #                      labels = c("<= 17", "17 < qsec <= 19", "> 19"))
+```
+
+```{r, include=FALSE}
+##Need to create two more summary cols
+# df.clin_outs.1 <- df.clin_outs.0  %>% 
+#   mutate(significant_in_both = as.numeric(as.character(GS.p.hub))*as.numeric(as.character(MM.p.hub))) %>% 
+#   mutate(hub_in_both = as.numeric(as.character(GS.hub))*as.numeric(as.character(MM.hub))) 
+# #remove 4 cols that was summarized
+# df.clin_outs <- df.clin_outs.1[,-c(8,9,10,11)] 
+# #df.clin_outs <- within(df.clin_outs, module[significant_in_both == 1 ] <- "blue")
+# #df.clin_outs <- within(df.clin_outs, module[hub_in_both == 1 ] <- "red")
+# df.clin_outs$mod_col <- df.clin_outs$module
+# df.clin_outs <- df.clin_outs %>% mutate(mod_col = ifelse(significant_in_both == 0,"grey",mod_col))
+```
+
+
+```{r fig2004, fig.cap="Scatterplot for all modules with relation to this clinical outcome", echo=FALSE}
+## Try plot with new color coding
+# #loop through length of list
+# for (cl_oc in "FIRS"){#unique(pos_corr_list[,1])
+#   df.clin_outs.2 <- df.clin_outs %>%
+#     filter(clinical_outc==cl_oc) %>% #select only one clin out
+#     filter(module %in% filter(pos_corr_list,clin_out_pos_cor==cl_oc)[,2]) # select corresponding modules
+#     #print(levels(as.factor(df.clin_outs.2$module)))
+#     #create significance column
+#     # df.clin_outs.2$signMM.p <- cut(df.clin_outs.2$MM.p,
+#     #            breaks = c(-Inf, significance_threshold, Inf),
+#     #            labels = c("grey", "transparant"))
+#     p <- ggplot(df.clin_outs.2, aes(x=MM, y=GS)) +
+#     geom_point(alpha = 1/20, col=as.character(df.clin_outs.2$mod_col)) +#as.character(df.clin_outs.2$module)   
+#     #geom_point(alpha = 1/20, col=as.character(df.clin_outs.2$signMM.p)) +
+#     #geom_point(alpha = 1/20, col=as.character(signMM.p)) +
+#     geom_vline(xintercept=MM_threshold, col="darkgrey") +
+#     geom_vline(xintercept=-MM_threshold, col="darkgrey") +
+#     geom_hline(yintercept=GS_threshold, col="darkgrey") +
+#     geom_hline(yintercept=-GS_threshold, col="darkgrey") +
+#     facet_wrap( ~ as.character(module))
+#     p <- p + labs(y = paste("Correlation with ",cl_oc,sep=""))
+#     p <- p + labs(x = "Correlation with module eigengene")
+#     p <- p + labs(title = paste("Gene-module versus gene-",cl_oc, " correlation", sep=""), subtitle = "Isolating hub genes")
+#   print(p)
+#   cat('\n\n')
+#   tiff(paste("./plots",name_of_analysis,"/06_gene_module_vs gene_outcome_corr_",cl_oc,".tif", sep=""), height = 9, width = 9, units = 'in', res=300)
+#   print(p)
+#   dev.off()
+# }
+```
+## Scatterplots  of the correlation of gene expression profiles with eigengenes versus gene expression profiles with clinical outcomes 
+
+The points in the plots have the color representing the module unless specific conditions are met. If the p-value of the  correlation with clinical outcome (Gene Significance, GS) and module eigengene (Module Membership, MM) respectivley is higher than `r significance_threshold` the dot will be grey.  
+
+### Positive clinical outcome -  module correlation
+If the correlation with module eigengene (Module Membership, MM) is higher than `r MM_threshold` and the correlation with clinical outcome (Gene Significance, GS) is higher than `r GS_threshold` the dot will be red and indicate that the gene is deemed as interesting and written to file. The p-value and correlation thresholds are set in the script and can be changed at one location if needed. The horisontal and vertical bars in th plots indicate the values of the thresholds.
+
+```{r fig2000, fig.cap=paste("Scatterplot for all modules with relation to ",cl_oc,sep=""), echo=FALSE}
+# MmGs_etc %>% 
+#   mutate(MM.q=p.adjust(MMp,fdr,n_test))#dont know how to count n_test and mabe not need correction?
+# make new color variable
+MmGs_etc$mod_col <- MmGs_etc$module
+#edit the color variable
+MmGs_etc <- MmGs_etc %>% mutate(mod_col = ifelse(MM.p > significance_threshold & GS.p > significance_threshold, "grey", mod_col)) %>% mutate(mod_col = ifelse(MM > MM_threshold & GS > GS_threshold, "red", mod_col)) %>% mutate(mod_col = ifelse(MM.p > significance_threshold & GS.p > significance_threshold, "grey", mod_col))
+#loop through length of list
+for (cl_oc in unique(pos_corr_list[,1])){
+  MmGs_etc.2 <- MmGs_etc %>%
+    filter(clinical_outc==cl_oc) %>% #select only one clin out
+    filter(module %in% filter(pos_corr_list,clin_out_pos_cor==cl_oc)[,2]) # select corresponding modules
+    #print(levels(as.factor(MmGs_etc.2$module)))
+    #create significance column
+    # MmGs_etc.2$signMM.p <- cut(MmGs_etc.2$MM.p,
+    #            breaks = c(-Inf, significance_threshold, Inf),
+    #            labels = c("grey", "transparant"))
+    p <- ggplot(MmGs_etc.2, aes(x=MM, y=GS)) +
+    geom_point(alpha = 1/20, col=as.character(MmGs_etc.2$mod_col)) +
+    #geom_point(alpha = 1/20, col=as.character(MmGs_etc.2$signMM.p)) +
+    #geom_point(alpha = 1/20, col=as.character(signMM.p)) +
+    geom_vline(xintercept=MM_threshold, col="darkgrey") +
+    geom_vline(xintercept=-MM_threshold, col="darkgrey") +
+    geom_hline(yintercept=GS_threshold, col="darkgrey") +
+    geom_hline(yintercept=-GS_threshold, col="darkgrey") +
+    facet_wrap( ~ as.character(module))
+    p <- p + labs(y = paste("Correlation with ",cl_oc,sep=""))
+    p <- p + labs(x = "Correlation with module eigengene")
+    p <- p + labs(title = paste("Gene-module versus gene-",cl_oc, " correlation", sep=""), subtitle = "Grey is non significant, red indicates genes selected as central/interesting")
+  print(p)
+  cat('\n\n')
+  tiff(paste("./plots",name_of_analysis,"/06_gene_module_vs gene_outcome_corr_",cl_oc,".tif", sep=""), height = 9, width = 9, units = 'in', res=300)
+  print(p)
+  dev.off()
+}
+
+```
+
+
+
+
+
+### Negative correlation 
+If the correlation with module eigengene (Module Membership, MM) is higher than `r MM_threshold` and the correlation with clinical outcome (Gene Significance, GS) is lower than -`r GS_threshold` the dot will be red and indicate that the gene is deemed as a interesting/central and written to file.
+```{r fig2001, fig.cap="Scatterplot for all modules with relation to a clinical outcome.", echo=FALSE}
+# make new color variable
+MmGs_etc$mod_col <- MmGs_etc$module
+#edit the color variable
+MmGs_etc <- MmGs_etc %>% 
+  mutate(mod_col = ifelse(MM.p > significance_threshold & GS.p > significance_threshold, "grey", mod_col)) %>%
+  mutate(mod_col = ifelse(MM > MM_threshold & GS < -GS_threshold, "red", mod_col)) 
+#loop through length of list
+for (cl_oc in unique(neg_corr_list[,1])){
+  MmGs_etc.2 <- MmGs_etc %>%
+    filter(clinical_outc==cl_oc) %>% #select only one clin out
+    filter(module %in% filter(neg_corr_list,clin_out_neg_cor==cl_oc)[,2]) # select corresponding modules
+    #print(levels(as.factor(MmGs_etc.2$module)))
+    #create significance column
+    # MmGs_etc.2$signMM.p <- cut(MmGs_etc.2$MM.p,
+    #            breaks = c(-Inf, significance_threshold, Inf),
+    #            labels = c("grey", "transparant"))
+    p <- ggplot(MmGs_etc.2, aes(x=MM, y=GS)) +
+    geom_point(alpha = 1/20, col=as.character(MmGs_etc.2$mod_col)) +
+    #geom_point(alpha = 1/20, col=as.character(MmGs_etc.2$signMM.p)) +
+    #geom_point(alpha = 1/20, col=as.character(signMM.p)) +
+    geom_vline(xintercept=MM_threshold, col="darkgrey") +
+    geom_vline(xintercept=-MM_threshold, col="darkgrey") +
+    geom_hline(yintercept=GS_threshold, col="darkgrey") +
+    geom_hline(yintercept=-GS_threshold, col="darkgrey") +
+    facet_wrap( ~ as.character(module))
+    p <- p + labs(y = paste("Correlation with ",cl_oc,sep=""))
+    p <- p + labs(x = "Correlation with module eigengene")
+    p <- p + labs(title = paste("Gene-module versus gene-",cl_oc, " correlation", sep=""), subtitle = "Grey is non significant, red indicates genes selected as interesting/central")
+  print(p)
+  cat('\n\n')
+  tiff(paste("./plots",name_of_analysis,"/06_gene_module_vs gene_outcome_corr_",cl_oc,".tif", sep=""), height = 9, width = 9, units = 'in', res=300)
+  print(p)
+  dev.off()
+}
+
+```
+
+negatively_related_modules_and_clin_outcomes
+Find interesting/central genes based on GS
+
+```{r}
+ # MmGs_etc %>%
+ #    filter(clinical_outc==cl_oc) %>% #select only one clin out
+ #    #mods <- filter(pos_corr_list,clin_out_pos_cor==cl_oc)[,2] #figure out corresponding moduls
+ #    filter(module%in%filter(pos_corr_list,clin_out_pos_cor==cl_oc)[,2]) # select corresponding modules
+ #    #create significance column
+ #    # MmGs_etc$signMM.p <- cut(MmGs_etc$MM.p,
+ #    #            breaks = c(-Inf, significance_threshold, Inf),
+ #    #            labels = c(MmGs_etc$module, "grey"))
+ #    p <- ggplot(MmGs_etc, aes(x=MM, y=GS)) +
+ #    geom_point(alpha = 1/20, col=as.character(module)) +
+ #    #geom_point(alpha = 1/20, col=as.character(signMM.p)) +
+ #    geom_vline(xintercept=MM_threshold, col="darkgrey") +
+ #    geom_vline(xintercept=-MM_threshold, col="darkgrey") +
+ #    facet_wrap( ~ MmGs_etc$module)
+ #    print(p)
+```
+
+<!-- Find interesting genes based on both MM and GS -->
+
+
+
+```{r 4.21 4 Create gene_module_gene_out_corr for plotting, include=FALSE}
+# #  #move rownames(genenames) to 1st column, but first copy geneModuleMembership to geneModuleMembership.2 not to mess upp downssdtream usage
+# library(data.table)
+# geneModuleMembership.2 <- geneModuleMembership
+# setDT(geneModuleMembership.2, keep.rownames = "gene")[]
+# gene_module_gene_out_corr <- cbind(geneModuleMembership.2,geneTraitSignificance)
+```
+
+
+```{r 4.2 4 Make gene_module_gene_out_corr longer, include=FALSE}
+# names(gene_module_gene_out_corr)
+# module_names_for_gathering = names(dplyr::select(gene_module_gene_out_corr,contains("MM")))
+# clin_out_names_for_filtering = names(dplyr::select(gene_module_gene_out_corr,contains("GS.")))
+# gene_module_gene_out_corr.long <- gene_module_gene_out_corr %>%
+# gather(module,corr.m,module_names_for_gathering) %>% 
+# gather(clin_out,corr.co,clin_out_names_for_filtering)#
+# head(gene_module_gene_out_corr.long)
+```
+
+
+```{r 4.21 4 Removing characters and filtering, include=FALSE}
+# # remove "MM from moduel colors"
+# gene_module_gene_out_corr.long$module <- gsub( "MM", "", as.character(gene_module_gene_out_corr.long$module))
+# gene_module_gene_out_corr.long$clin_out <- gsub( "GS.", "", as.character(gene_module_gene_out_corr.long$clin_out))
+# ###module_col_of_int <- gsub( "ME", "", as.character(module_col_of_int))
+# #another way to do it
+# #df$module <- str_replace(weather3$day, "X", "")
+# head(gene_module_gene_out_corr.long)
+# modules_related_to_clin_out <- as.data.frame(modules_related_to_clin_out)
+related_modules_and_clin_outcomes<- as.data.frame(related_modules_and_clin_outcomes)
+relevant_clin_out <- unique(related_modules_and_clin_outcomes$clin_out_related_to_modules)
+```
+
+
+<!-- ## Scatterplots 2 of the correlation of gene expression profiles with eigengenes versus gene expression profiles with clinical outcomes  -->
+
+<!-- Figure \@ref(fig:fig101) -->
+
+```{r fig101, fig.cap="Scatterplot for all modules with relation to this clinical outcome", echo=FALSE}
+# 
+# for( clinical_out in relevant_clin_out ) {
+#   #cat( paste('## title no.', clinical_out, '\n' ) ) 
+#   int_module.2 = filter(related_modules_and_clin_outcomes,clin_out_related_to_modules == clinical_out)
+#   d <- gene_module_gene_out_corr.long %>% filter(clin_out == clinical_out) %>% filter(module %in% int_module.2$modules_related_to_clin_out)
+#   p <- ggplot(d , aes(x=corr.m, y=corr.co)) +
+#     geom_point(alpha = 1/20, col=as.character(d$module)) +
+#     facet_wrap( ~ module)
+#   p <- p + labs(y = paste("Correlation with ",clinical_out,sep=""))
+#   p <- p + labs(x = "Correlation with module eigengene")
+#   p <- p + labs(title = paste("Gene-module versus gene-",clinical_out, " correlation", sep=""), subtitle = "Isolating hub genes")
+#   print(p)
+#   cat('\n\n')
+#   tiff(paste("./plots",name_of_analysis,"/06_gene_module_vs gene_outcome_corr_",clinical_out,".tif", sep=""), height = 9, width = 9, units = 'in', res=300)
+#   print(p)
+#   dev.off()
+# }
+```
+
+
+## Create a gene info file and write to file
+The file has all the information about correlations for all genes and can perhaps be manipulated with excel to find interesting/central genes.
+
+```{r Code chunk 8 Get EntrezID, include=FALSE}
+
+#geneInfo0[alarmins,]
+library(org.Hs.eg.db)
+hs <- org.Hs.eg.db
+#make vector of gene symbols
+my.symbols = names(dat_expr)
+length(my.symbols)
+#get data frame with Entrez id and gen symbol
+ei <- select(hs, 
+       keys = my.symbols,
+       columns = c("ENTREZID", "SYMBOL"),
+       keytype = "SYMBOL")
+# will not be filtered out in the end
+genes_not_having_entrez_id_and_filtered_out <- sum(is.na(ei$ENTREZID)) #count missing values in col
+dim(ei)
+#remove genes that dont have entrezid
+ei0.0 <- na.omit(ei)
+dim(ei0.0)
+ei[1:5,]
+
+symbols_with_no_na <- ei[rowSums(is.na(ei)) > 0,]
+
+
+symb_orig2symb_biom_out = match(my.symbols, ei$SYMBOL)
+# The following is the number or probes without annotation:
+sum(is.na(symb_orig2symb_biom_out))
+# Should return 0.
+```
+
+
+
+
+```{r Code chunk 9 Collect gene info, include=FALSE}
+
+# Create the starting data frame, adding gene symbol(all genes), entrez id for those that have, module color, gene trait sign, gene #trait sign p-vale
+geneInfo0 = data.frame(gene_symbol = ei$SYMBOL[symb_orig2symb_biom_out],
+                       entrez_id = ei$ENTREZID[symb_orig2symb_biom_out],
+                       moduleColor = moduleColors,
+                       geneTraitSignificance,
+                       GSPvalue)
+
+##################################################################
+# Here a loop is needed to loop through clin_out_data!!
+##################################################################
+# Order modules by their significance for clinical outcome
+#for every relevant_clin_out
+for (clinical_outcome in relevant_clin_out){
+  #reset geneInfo
+  geneInfo0.1 <- geneInfo0
+  #rank modules by hwo their eigengne correlates with clin out
+  modOrder = order(-abs(cor(MEs, clin_out[,clinical_outcome], use = "p")));
+  # Add module membership information in the chosen order
+  # for every col in geneModuleMembership (how gene is correlating with moduel eigengene)
+  for (mod in 1:ncol(geneModuleMembership))
+  {
+    oldNames = names(geneInfo0.1)
+    #add the column of gene module membershis and its corresponding p-val
+    geneInfo0.1 = data.frame(geneInfo0.1, geneModuleMembership[, modOrder[mod]],
+                           MMPvalue[, modOrder[mod]]);
+    # add the names of the two new added cols
+    names(geneInfo0.1) = c(oldNames, paste("MM.", modNames[modOrder[mod]], sep=""),
+                         paste("p.MM.", modNames[modOrder[mod]], sep=""))
+  }
+  # Order the genes in the geneInfo variable first by module color, then by geneTraitSignificance
+  # order by unsigned value of gene significance to clin out
+  geneOrder = order(geneInfo0$moduleColor, -abs(geneInfo0.1[,paste("GS.",clinical_outcome,sep="")]));
+
+  geneInfo = geneInfo0.1[geneOrder, ]
+
+  write.csv(geneInfo, file = paste("./out",name_of_analysis,"/geneInfo_sorted_by_relevance_to",clinical_outcome,".csv",sep=""))
+}
+
+
+alarmins <- grep("S100A",names(dat_expr), perl=TRUE, value=TRUE)
+alarmins
+geneInfo0[alarmins,]
+geneInfo0[alarmins,1:4]
+alarmin_124_coreg <- as.matrix(read.csv("./data/124_genes_correlated_with_alarmins"))
+#geneInfo[alarmin_124_coreg,]
+
+```
+
+```{r Code chunk 10 Write gene infor to file, include=FALSE}
+
+
+#=====================================================================================
+#
+#  Code chunk 10
+#
+#=====================================================================================
+
+write.csv(geneInfo0[alarmins,], file = paste("./out",name_of_analysis,"/alarminInfo.csv",sep=""))
+write.csv(geneInfo0[alarmin_124_coreg,], file = paste("./out",name_of_analysis,"/alarmin_124_coreg_Info.csv",sep=""))
+save(ei,alarmins, file = paste("./saved_data/03",name_of_analysis,"_relating_modules_to_outcome.RData", sep="")) #, module
+
+```
+
+```{r Code chunk 11 Save some more files, include=FALSE}
+save(module_col_of_int, outcome_names_of_int, positively_related_modules_and_clin_outcomes, negatively_related_modules_and_clin_outcomes, file = paste("./saved_data/04",name_of_analysis,"_relating_modules_to_outcome2.RData", sep=""))
+```
+
+
+```{r Code chunk 11 geneInfo, include=FALSE}
+##################################
+##
+##Making gene info long
+##
+##################################
+names(geneInfo)
+mod_memb_col_names = names(dplyr::select(geneInfo,starts_with("MM")))
+p_mod_memb_col_names = names(dplyr::select(geneInfo,contains("p.MM")))
+cor_to_clin_out_names = names(dplyr::select(geneInfo,starts_with("GS.")))
+p_cor_to_clin_out_names = names(dplyr::select(geneInfo,starts_with("p.GS.")))
+geneInfo.long <- geneInfo %>%
+gather(module,corr.mod,mod_memb_col_names) %>%
+gather(module.p,corr.mod.p,p_mod_memb_col_names) %>%
+gather(clin_out,corr.co,cor_to_clin_out_names) %>%
+gather(clin_out.p,corr.co.p,p_cor_to_clin_out_names)
+head(geneInfo.long)
+
+df <- geneInfo.long %>% 
+filter(module == "MM.turquoise") %>% 
+filter(clin_out  == "GS.Spont_labor") %>%
+filter(gene_symbol  == "7SK") # %>% filter(MM.p < 0.05)
+
+names(geneInfo)
+df <- data.frame(geneInfo$MM.red,geneInfo$p.MM.red,geneInfo$MM.yellow,geneInfo$p.MM.yellow)[1:3,]
+head(df)
+df.2 <- df %>% gather(MM,val,geneInfo.MM.red,geneInfo.p.MM.yellow)
+df.2
+```
+
+## How many of the 124 genes from paper are found in each respective modules
+
+See Table \@ref(tab:tab3)
+```{r tab3, echo=F}
+kable(table(geneInfo0[alarmin_124_coreg,]$moduleColor), caption="How the 124 genes distribute among modules")
+```
+

@@ -1,0 +1,228 @@
+# Network construction and module construction
+
+```{r Code chunk 1 3, include=FALSE}
+# Display the current working directory
+getwd();
+# If necessary, change the path below to the directory where the data files are stored. 
+# "." means current directory. On Windows use a forward slash / instead of the usual \.
+workingDir = ".";
+setwd(workingDir); 
+# Load the WGCNA package
+library(WGCNA)
+# The following setting is important, do not omit.
+options(stringsAsFactors = FALSE);
+# Allow multi-threading within WGCNA. This helps speed up certain calculations.
+# At present this call is necessary for the code to work.
+# Any error here may be ignored but you may want to update WGCNA if you see one.
+# Caution: skip this line if you run RStudio or other third-party R environments. 
+# See note above.
+#enableWGCNAThreads()
+# Load the data saved in the first part
+lnames = load(file = "saved_data/name_of_analysis.RData");
+lnames
+lnames = load(file = paste("saved_data/01",name_of_analysis,"_data_input.RData", sep=""));
+#The variable lnames contains the names of loaded variables.
+lnames
+dim(dat_expr)
+```
+
+
+
+```{r Code chunk 2.0 3, include=FALSE}
+# Choose a set of soft-thresholding powers
+powers = c(c(1:10), seq(from = 12, to=20, by=2))
+# Call the network topology analysis function
+sft = pickSoftThreshold(dat_expr, powerVector = powers, verbose = 5)
+```
+
+## Finding a good value for the Soft threshold (power)
+Soft threshold (power)
+The soft thresholding is the basis of the weighted correlation network. Instead of a binary network of connection or no connection a soft thresholding is used to assign weights to connections of each gene pair(edges) to create the weighted gene co-expression network. Many natural networks resembles the so called scale-free topology model. The used soft thresholding is here evaluated based on the how well the networks fits the scale-free topology criterion. In the left most plot of Figure \@ref(fig:fig3) it can be seen that at a certain Soft Threshold the fit to the model do not improve by raising the threshold.
+In this analysis we have decided to use a Soft Threshold of `r power_to_use`. In the right most plot it can be seen that the mean gene connectivity decreases with the higher threshold.
+
+
+```{r fig3, fig.cap="Scale-free topology fit index as a function of the soft-thresholding power", echo=FALSE}
+#sizeGrWindow(9, 5)
+par(mfrow = c(1,2));
+cex1 = 0.9;
+# Scale-free topology fit index as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n",
+     main = paste("Scale independence"));
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     labels=powers,cex=cex1,col="red");
+# this line corresponds to using an R^2 cut-off of h
+abline(h=0.90,col="red")
+# Mean connectivity as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], sft$fitIndices[,5],
+     xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+     main = paste("Mean connectivity"))
+text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=cex1,col="red")
+```
+
+```{r  Code chunk 2 3, include=FALSE}
+# tiff(file = paste("./plots",name_of_analysis,"/03_scale_independance_mean_connectivity.tif",sep=""), height = 5, width = 10, units = 'in', res=300)#, height=1200, width=1200)#,pointsize=0.8
+# #sizeGrWindow(9, 5)
+# par(mfrow = c(1,2));
+# cex1 = 0.9;
+# # Scale-free topology fit index as a function of the soft-thresholding power
+# plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+#      xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n",
+#       main = paste("Scale independence"));
+#  text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+#       labels=powers,cex=cex1,col="red");
+# # this line corresponds to using an R^2 cut-off of h
+# abline(h=0.90,col="red")
+# # Mean connectivity as a function of the soft-thresholding power
+# plot(sft$fitIndices[,1], sft$fitIndices[,5],
+#      xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+#      main = paste("Mean connectivity"))
+# text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=cex1,col="red")
+#dev.off()
+```
+
+
+## Calculating the network
+
+Next, the central function of WGCNA "blockwiseModules" is used to calculate the network. The function takes a lot of parameters, Except for the Soft Threshold it takes input on the minimum module size. We have set it to `r min_module_size`. Further we have chosen to set mergeCutHeight to `r merge_cut_height`. Since it takes a long time to calculate the network it is saved to file. The if/else clause below is used to check it the there exist and network saved to file. If so the network is read form file instead of calculated.
+
+<!-- The resulting output/value of blockwiseModules is a list with the following components: -->
+<!-- ``` -->
+<!--   colors	 -->
+<!--   a vector of color or numeric module labels for all genes. -->
+
+<!--   unmergedColors	 -->
+<!--   a vector of color or numeric module labels for all genes before module merging. -->
+
+<!--   MEs	 -->
+<!--   a data frame containing module eigengenes of the found modules (given by colors). -->
+
+<!--   goodSamples	 -->
+<!--   numeric vector giving indices of good samples, that is samples that do not have too many missing entries. -->
+
+<!--   goodGenes	 -->
+<!--   numeric vector giving indices of good genes, that is genes that do not have too many missing entries. -->
+
+<!--   dendrograms	 -->
+<!--   a list whose components conatain hierarchical clustering dendrograms of genes in each block. -->
+
+<!--   TOMFiles	 -->
+<!--   if saveTOMs==TRUE, a vector of character strings, one string per block, giving the file names of files (relative to current directory) in which blockwise topological overlaps were saved. -->
+
+<!--   blockGenes	 -->
+<!--   a list whose components give the indices of genes in each block. -->
+
+<!--   blocks	 -->
+<!--   if input blocks was given, its copy; otherwise a vector of length equal number of genes giving the block label for each gene. Note that block labels are not necessarilly sorted in the order in which the blocks were processed (since we do not require this for the input blocks). See blockOrder below. -->
+
+<!--   blockOrder	 -->
+<!--   a vector giving the order in which blocks were processed and in which blockGenes above is returned. For example, blockOrder[1] contains the label of the first-processed block. -->
+
+<!--   MEsOK	 -->
+<!--   logical indicating whether the module eigengenes were calculated without errors. -->
+<!-- ``` -->
+
+```{r Code chunk 3 3, include=FALSE}
+#If script 02 allready run and network allready caluclated. load it instead of recalculating it.
+if (file.exists(paste("saved_data/02",name_of_analysis,"_networkConstruction_auto.RData", sep=""))){
+        print("file exists")
+        lnames = load(file = paste("saved_data/02",name_of_analysis,"_networkConstruction_auto.RData", sep=""));
+        lnames     
+} else{
+print("Network file dont exist")
+cor <- WGCNA::cor #https://www.biostars.org/p/305714/
+net = blockwiseModules(dat_expr, power = power_to_use,
+                       TOMType = "unsigned", minModuleSize = min_module_size,
+                       reassignThreshold = 0, mergeCutHeight = merge_cut_height,
+                       numericLabels = TRUE, pamRespectsDendro = FALSE,
+                       saveTOMs = TRUE,
+                       saveTOMFileBase = paste("saved_data/03",name_of_analysis,"_TOM", sep=""),
+                       verbose = 3, maxBlockSize=11000)
+
+cor<-stats::cor
+
+moduleLabels = net$colors
+moduleColors = labels2colors(net$colors)
+MEs = net$MEs;
+geneTree = net$dendrograms[[1]];
+block_genes = net$blockGenes[[1]]
+save(MEs, moduleLabels, moduleColors, geneTree, block_genes,
+     file = paste("saved_data/02",name_of_analysis,"_networkConstruction_auto.RData", sep=""))
+
+}
+```
+
+
+### These are the modules of the network and the number of genes they are made up of:
+```{r r Code chunk 3.2 3}
+moduleColors.df <- as.data.frame(table(moduleColors))
+moduleColors.df[order(-moduleColors.df$Freq),]
+
+
+```
+
+
+## Plotting modules and dendrogram
+
+Visualizing the dendrogram and modules as in Figure \@ref(fig:fig4) gives an idea of how well the derived modules fit the clusters/branches of the dendrogram that has been used as basis for module derivation.
+
+
+```{r fig4, fig.cap="Dendrogram and module_colors", echo=FALSE}
+# open a graphics window
+#sizeGrWindow(12, 9)
+# Convert labels to colors for plotting
+#mergedColors = labels2colors(net$colors)
+# Plot the dendrogram and the module colors underneath
+plotDendroAndColors(geneTree, moduleColors[block_genes],
+                    "Module colors",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05)
+
+```
+
+```{r Code chunk 4 3, include=FALSE}
+tiff(file = paste("./plots",name_of_analysis,"/04_dendrogram_and_module_colors.tif",sep=""), height = 5, width = 10, units = 'in', res=300)#, height=1200,
+# open a graphics window
+#sizeGrWindow(12, 9)
+# Convert labels to colors for plotting
+#mergedColors = labels2colors(net$colors)
+# Plot the dendrogram and the module colors underneath
+plotDendroAndColors(geneTree, moduleColors[block_genes],
+                    "Module colors",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05)
+dev.off()
+#Code chunk 5 not needed since the content was moved into the end of code chunk 3
+```
+
+It could be worthwhile to use the function `recutBlockwiseTrees` to change the parameters to see how  that effects the resulting modules. The function can take the following parameters:
+
+```
+recutBlockwiseTrees(
+  datExpr,
+  goodSamples, goodGenes,
+  blocks,
+  TOMFiles,
+  dendrograms,
+  corType = "pearson",
+  networkType = "unsigned",
+  deepSplit = 2,
+  detectCutHeight = 0.995, minModuleSize = min(20, ncol(datExpr)/2 ),
+  maxCoreScatter = NULL, minGap = NULL,
+  maxAbsCoreScatter = NULL, minAbsGap = NULL,
+  minSplitHeight = NULL, minAbsSplitHeight = NULL,
+
+  useBranchEigennodeDissim = FALSE,
+  minBranchEigennodeDissim = mergeCutHeight,
+
+  pamStage = TRUE, pamRespectsDendro = TRUE,
+  minCoreKME = 0.5, minCoreKMESize = minModuleSize/3,
+  minKMEtoStay = 0.3,
+  reassignThreshold = 1e-6,
+  mergeCutHeight = 0.15, impute = TRUE,
+  trapErrors = FALSE, numericLabels = FALSE,
+  verbose = 0, indent = 0,
+  ...)
+ 
+```
+

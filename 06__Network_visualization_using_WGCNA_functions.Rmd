@@ -1,0 +1,159 @@
+# Network visualization using WGCNA functions
+
+
+```{r Code chunk 1 6, include=FALSE}
+# Display the current working directory
+getwd();
+# If necessary, change the path below to the directory where the data files are stored. 
+# "." means current directory. On Windows use a forward slash / instead of the usual \.
+workingDir = ".";
+setwd(workingDir); 
+# Load the WGCNA package
+library(WGCNA)
+# The following setting is important, do not omit.
+options(stringsAsFactors = FALSE);
+# Load the data saved in the first part
+lnames = load(file = "saved_data/name_of_analysis.RData");
+lnames
+lnames = load(file = paste("saved_data/01",name_of_analysis,"_data_input.RData", sep=""));
+# Load network data saved in the second part.
+lnames = load(file = paste("saved_data/02",name_of_analysis,"_networkConstruction_auto.RData", sep=""));
+lnames
+# Load network data saved in the second part.
+lnames = load(file = paste("saved_data/02",name_of_analysis,"_networkConstruction_auto.RData", sep=""));
+lnames
+nGenes = ncol(dat_expr)
+nSamples = nrow(dat_expr)
+
+```
+
+```{r Code chunk 2 6, include=FALSE}
+# Calculate topological overlap anew: this could be done more efficiently by saving the TOM
+# calculated during module detection, but let us do it again here.
+#are these "consensus topological overlaps" from section three?
+#problably. Manual says that value is "A matrix holding the topological overlap."
+#Then lets read in old one
+if (file.exists(paste("saved_data/05",name_of_analysis,"_TOM.RData", sep=""))){
+        ##tried to load object from section three
+        #lnames = load(file = paste("saved_data/03",name_of_analysis,"_TOM-block.1.RData", sep=""));
+        lnames = load(file = paste("saved_data/05",name_of_analysis,"_TOM.RData", sep=""));
+        lnames 
+         dissTOM = 1-TopOver
+} else{
+        TopOver = TOMsimilarityFromExpr(dat_expr, power = power_to_use);
+        dissTOM = 1-TopOver;
+        save(TopOver, file = paste("saved_data/05",name_of_analysis,"_TOM.RData", sep=""))
+}
+# # Transform dissTOM with a power to make moderately strong connections more visible in the heatmap
+# I comment out this plot since I dont think we need to use it. The smaller plot sufices to illustrate the idea
+# plotTOM = dissTOM^7;
+# # Set diagonal to NA for a nicer plot
+# diag(plotTOM) = NA;
+# # Call the plot function
+# sizeGrWindow(9,9)
+# TOMplot(plotTOM, geneTree, moduleColors, main = "Network heatmap plot, all genes")
+
+```
+
+
+
+```{r Code chunk 3 6, include=FALSE}
+nSelect = 400
+# For reproducibility, we set the random seed
+set.seed(10);
+select = sample(nGenes, size = nSelect);
+selectTOM = dissTOM[select, select];
+# There's no simple way of restricting a clustering tree to a subset of genes, so we must re-cluster.
+selectTree = hclust(as.dist(selectTOM), method = "average")
+selectColors = moduleColors[select];
+# Open a graphical window
+sizeGrWindow(9,9)
+# Taking the dissimilarity to a power, say 10, makes the plot more informative by effectively changing 
+# the color palette; setting the diagonal to NA also improves the clarity of the plot
+plotDiss = selectTOM^7;
+diag(plotDiss) = NA;
+tiff(paste("./plots",name_of_analysis,"/07b_network_heatmap_plot_randomly_selected_subset_of_genes.tif", sep=""), height = 9, width = 9, units = 'in', res=300)
+TOMplot(plotDiss, selectTree, selectColors, main = "Network heatmap plot, selected genes")
+dev.off()
+```
+
+## Plotting the network as a heatmap together with dendrograms and moduel colors
+
+"One way to visualize a weighted network is to plot its heatmap as in Figure \@ref(fig:fig7b). Each row and column of the heatmap correspond to a single gene. The heatmap can depict adjacencies or topological overlaps, with light colors denoting low adjacency (overlap) and darker colors higher adjacency (overlap). In addition, the gene dendrograms and module colors are plotted along the top and left side of the heatmap."
+
+Here only a subset of genes are plotted since plotting allgenes are time consuming
+
+
+```{r fig7b, fig.cap="Network heatmap plot, selected genes", echo=FALSE}
+# Open a graphical window
+#sizeGrWindow(9,9)
+# Taking the dissimilarity to a power, say 10, makes the plot more informative by effectively changing 
+# the color palette; setting the diagonal to NA also improves the clarity of the plot
+plotDiss = selectTOM^7;
+diag(plotDiss) = NA;
+TOMplot(plotDiss, selectTree, selectColors, main = "Network heatmap plot, selected genes")
+```
+
+```{r Code chunk 4 6, include=FALSE}
+# # Recalculate module eigengenes
+MEs = moduleEigengenes(dat_expr, moduleColors)$eigengenes
+# # Isolate Sort_infl_birth from the clinical traits
+HCA_nar = as.data.frame(clin_out$HCA_nar);
+names(HCA_nar) = "HCA_nar"
+# # Add the Sort_infl_birth to existing module eigengenes
+MET = orderMEs(cbind(MEs, HCA_nar))
+# # Plot the relationships among the eigengenes and the trait
+# sizeGrWindow(5,7.5);
+# par(cex = 0.9)
+# tiff(paste("./plots",name_of_analysis,"/08_relationships_among_the_eigengenes_and_the_trait.tif", sep=""), height = 9, width = 9, units = 'in', res=300)
+# plotEigengeneNetworks(MET, "", marDendro = c(0,4,1,2), marHeatmap = c(3,4,1,2), cex.lab = 0.8, xLabelsAngle
+#                       = 90)
+# dev.off()
+```
+
+## Plotting a heatmap of the correlations of the eigengenes
+**Here different traits of interest should be included**
+"It is often interesting to study the relationships among the found modules. One can use the eigengenes as representative profiles and quantify module similarity by eigengene correlation. In Figure \@ref(fig:fig8) the correlations are visualized as a heatmap. It is usually informative to add a clinical trait (or multiple traits) to the eigengenes to see how the traits fit into the eigengene network:" The eigengene dendrogram and heatmap identify groups of correlated eigengenes termed meta-modules.
+
+```{r fig8, fig.cap="Relationships among the eigengenes and the trait", echo=FALSE}
+plotEigengeneNetworks(MET, "", marDendro = c(0,4,1,2), marHeatmap = c(3,4,1,2), cex.lab = 0.8, xLabelsAngle
+                       = 90)
+```
+
+```{r Code chunk 5 6, include=FALSE}
+# Plot the dendrogram
+sizeGrWindow(6,6);
+par(cex = 1.0)
+tiff(paste("./plots",name_of_analysis,"/09a_Eigengene dendrogram.tif", sep=""))
+plotEigengeneNetworks(MET, "Eigengene dendrogram", marDendro = c(0,4,2,0),
+                       plotHeatmaps = FALSE)
+dev.off()
+# Plot the heatmap matrix (note: this plot will overwrite the dendrogram plot)
+par(cex = 1.0)
+tiff(paste("./plots",name_of_analysis,"/09b_Eigengene adjacency heatmap.tif", sep=""))
+plotEigengeneNetworks(MET, "Eigengene adjacency heatmap", marHeatmap = c(3,4,2,2),
+                      plotDendrograms = FALSE, xLabelsAngle = 90)
+dev.off()
+```
+
+
+The function produces a dendrogram of the eigengenes and trait(s), and a heatmap of their relationships. In Figures \@ref(fig:fig9a) and \@ref(fig:fig9b) the dendrogram and heatmap plots are plotted separately. Visualization of the eigengene network representing the relationships among the modules and the clinical trait weight. Figure \@ref(fig:fig9a) shows a hierarchical clustering dendrogram of the eigengenes in which the dissimilarity of eigengenes EI , EJ is given by 1 − cor(EI , EJ ). The heatmap in Figure \@ref(fig:fig9b) shows the eigengene adjacency AI J = (1 + cor(EI , EJ ))/2.
+
+
+```{r fig9a, fig.cap="Eigengene dendrogram", echo=FALSE}
+# Plot the dendrogram
+#sizeGrWindow(6,6);
+par(cex = 1.0)
+par(mfrow=c(2,2))
+plotEigengeneNetworks(MET, "Eigengene dendrogram", marDendro = c(0,4,2,0),
+                      plotHeatmaps = FALSE)
+```
+ 
+
+ 
+```{r fig9b, fig.cap="Eigengene adjacency heatmap", echo=FALSE}
+#Plot the heatmap matrix (note: this plot will overwrite the dendrogram plot)
+#par(cex = 1.0)
+plotEigengeneNetworks(MET, "Eigengene adjacency heatmap", marHeatmap = c(3,4,2,2),
+                      plotDendrograms = FALSE, xLabelsAngle = 90)
+```

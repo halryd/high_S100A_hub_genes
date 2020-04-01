@@ -1,0 +1,103 @@
+# Export of networks to external software
+
+```{r, Code chunk 1 7, include=FALSE}
+# Display the current working directory
+getwd();
+# If necessary, change the path below to the directory where the data files are stored. 
+# "." means current directory. On Windows use a forward slash / instead of the usual \.
+workingDir = ".";
+setwd(workingDir); 
+# Load the WGCNA package
+library(WGCNA)
+# The following setting is important, do not omit.
+options(stringsAsFactors = FALSE);
+# Load the data saved in the first part
+lnames = load(file = "saved_data/name_of_analysis.RData");
+lnames
+lnames = load(file = paste("saved_data/01",name_of_analysis,"_data_input.RData", sep=""));
+# Load network data saved in the second part.
+lnames = load(file = paste("saved_data/02",name_of_analysis,"_networkConstruction_auto.RData", sep=""));
+lnames
+# Load network data saved in the third part.
+lnames = load(file = paste("./saved_data/03",name_of_analysis,"_relating_modules_to_outcome.RData", sep=""));
+lnames
+lnameslnames = load(file = paste("./saved_data/04",name_of_analysis,"_relating_modules_to_outcome2.RData", sep=""));
+lnames
+
+```
+
+## Export to VisANT
+
+### Network table for selected module is printed to file
+Loop through list of interesting modules here instead
+```{r Code chunk  7 , include=FALSE}
+# Recalculate topological overlap
+if (file.exists(paste("saved_data/05",name_of_analysis,"_TOM.RData", sep=""))){
+        ##tried to load object from section three
+        #lnames = load(file = paste("saved_data/03",name_of_analysis,"_TOM-block.1.RData", sep=""));
+        lnames = load(file = paste("saved_data/05",name_of_analysis,"_TOM.RData", sep=""));
+        lnames 
+        TOM = TopOver
+} else{
+        TopOver = TOMsimilarityFromExpr(dat_expr, power = power_to_use);
+        dissTOM = 1-TopOver;
+        save(TopOver, file = paste("saved_data/05",name_of_analysis,"_TOM.RData", sep=""))
+}
+# Read in the annotation file
+#annot = read.csv(file = "GeneAnnotation.csv");
+# Select module genes
+genes = names(dat_expr)
+
+
+module_col_of_int <- gsub( "ME", "", as.character(module_col_of_int))
+
+for (int_module in module_col_of_int){
+        inModule = (moduleColors==int_module);
+        modgenes = genes[inModule];
+        # Select the corresponding Topological Overlap
+        modTOM = TOM[inModule, inModule];
+        dimnames(modTOM) = list(modgenes, modgenes)
+        #ei
+        # Export the network into an edge list file VisANT can read
+        vis = exportNetworkToVisANT(modTOM,
+                            file = paste("./out",name_of_analysis,"/VisANTInput-", int_module, ".txt", sep=""),
+                            weighted = TRUE,
+                            threshold = 0,
+                            )#probeToGene = ei      
+}
+
+
+
+
+
+```
+
+### Network table of top 30 genes wiht highest softConnectivity for selected module is printed to file
+Loop through list of interesting modules here instead
+
+```{r Code chunk 3 7, include=FALSE}
+
+for (int_module in module_col_of_int){
+        inModule = (moduleColors==int_module);
+        modgenes = genes[inModule];
+        
+        # Select the corresponding Topological Overlap
+        modTOM = TOM[inModule, inModule];
+        dimnames(modTOM) = list(modgenes, modgenes)
+        
+        nTop = 30;
+        IMConn = softConnectivity(dat_expr[, modgenes]);
+        top = (rank(-IMConn) <= nTop)
+        vis = exportNetworkToVisANT(modTOM[top, top],
+                            file = paste("./out",name_of_analysis,"/VisANTInput-", int_module, "+top30.txt", sep=""),
+                            weighted = TRUE,
+                            threshold = 0,
+                            ) #probeToGene = ei
+        
+        
+}
+```
+
+
+
+

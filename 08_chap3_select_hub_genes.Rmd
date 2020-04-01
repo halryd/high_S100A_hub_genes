@@ -1,0 +1,529 @@
+# Select hub genes
+
+## What is a hub gene?
+In the tutorials of WGCNA they indicate three different way to measure the degree to which a gene is a hub. It is shownd that GS and MM correlate quit well an that. MM and 
+1. Gene significance (GS)
+2. Module membership (MM)
+3. Module connectivity (MC?)
+
+- In paper "Inflammatory, regulatory, and autophagy co-expression modules and hub genes underlie the peripheral immune response to human intracerebral hemorrhage" they are using top 5% highest membership to their respective module as definition of a hub gene-
+
+References for 5% membership: @RN7
+```
+- In "Gene co-expression network analysis reveals common system-level properties of prognostic genes across cancer types" they  defined the 1% (or 5%) of nodes with the highest connectivity as hubs 25–27.
+  - They write further "Given a network, we then obtained several key network properties such as the edge weight, node connectivity and modularity. Connectivity was defined as the sum of the weights across all the edges of a node, and the top 1% (or 5%) of the genes with the highest connectivity in the network were defined as hub genes."
+```  
+  References for 5% connectivity @RN5
+  ```
+25. Yu, H., Kim, P. M., Sprecher, E., Trifonov, V. & Gerstein, M. The importance of bottlenecks in protein networks: correlation with gene essentiality and expression dynamics. PLoS Comput. Biol. 3, e59 (2007).
+26. Yu, H., Greenbaum, D., Xin, Lu, H., Zhu, X. & Gerstein, M. Genomic analysis of essentiality within protein networks. Trends Genet. 20, 227–231 (2004).
+27. Sun, J. & Zhao, Z. A comparative study of cancer proteins in the human protein-protein interaction network. BMC Genomics 11(Suppl 3): S5 (2010).
+```
+
+```{r, Code chunk 0 8, include=FALSE}
+# Display the current working directory
+getwd();
+# If necessary, change the path below to the directory where the data files are stored. 
+# "." means current directory. On Windows use a forward slash / instead of the usual \.
+workingDir = ".";
+setwd(workingDir); 
+# Load the WGCNA package
+library(WGCNA)
+library(knitr)
+# The following setting is important, do not omit.
+options(stringsAsFactors = FALSE);
+# Load the data saved in the first part
+lnames = load(file = "saved_data/name_of_analysis.RData");
+lnames
+lnames = load(file = paste("saved_data/01",name_of_analysis,"_data_input.RData", sep=""));
+# Load network data saved in the second part.
+lnames = load(file = paste("saved_data/02",name_of_analysis,"_networkConstruction_auto.RData", sep=""));
+lnames
+# Load network data saved in the third part.
+lnames = load(file = paste("./saved_data/03",name_of_analysis,"_relating_modules_to_outcome.RData", sep=""));
+lnames
+lnames = load(file = paste("./saved_data/04",name_of_analysis,"_relating_modules_to_outcome2.RData", sep=""));
+lnames
+
+```
+
+
+```{r Cody chunk 0.1 Some adaptations of code, include=FALSE}
+#Hal
+#from file 02 (chapter 4?)
+#set vector of interesting colors
+module_col_of_int <- gsub( "ME", "", as.character(module_col_of_int))
+#which color does each gene belong to 
+#colorh1 should only represent the identified modules ?? It is defined in section 5.c.9
+colorh1=moduleColors#module_col_of_int#
+#from file/chapter6
+  #Sampletrait has to be defined
+names(clin_out)
+#What is the interesting trait/outcome
+interesting_clin_out = "HCA_nar"
+# In tutorial y represents the vector of  values for a sample trait. It is generated in section 1. In this script it is referred to as values_interesting_clin_out
+values_interesting_clin_out=clin_out[[interesting_clin_out]] #$Sort_infl_birth#S100As_2
+#from file/chapter6
+#What is gene significance for that trait/outcome
+GS1=as.numeric(cor(values_interesting_clin_out,dat_expr, use="p"))
+#What is non-signed gene significane for trait
+GeneSignificance=abs(GS1)
+#from file/chapter6
+#What are the moduel eigengenes
+datME=moduleEigengenes(dat_expr,colorh1)$eigengenes
+# What are significance of eigen genes
+signif(cor(datME, use="p"), 2)
+```
+
+```{r Code chunk 1 8, include=FALSE}
+# # Display the current working directory
+# getwd();
+# # If necessary, change the path below to the directory where the data files are stored. 
+# # "." means current directory.  On Windows use a forward slash / instead of the usual \.
+# workingDir = ".";
+# setwd(workingDir); 
+# # Load WGCNA package
+# library(WGCNA)
+# library(cluster)
+# # The following setting is important, do not omit.
+# options(stringsAsFactors = FALSE);
+# # Load the previously saved data
+# #load("Simulated-RelatingToExt.RData")
+
+```
+
+## Calculating the intramodular connectivity
+WGCNA offers a function "intramodularConnectivity" that actually also computes the total connectivity (within the whole network). In addition to total and intramodular connectivity it also gives the extra-modular connectivity (kTotal-kWithin), and the difference of the intra- and extra-modular connectivities (kIn-kOut) for all genes. The value returned from the function is a data frame with one column for each of the measures mentioned above. Intramodular connectivity is calculated by summing adjacency entries (excluding the diagonal) to other nodes within the same module. 
+Intramodular connectivity (kWithin)
+After raising the module membership to a power of 6, it is highly correlated with the intramodular connectivity (kWithin).
+
+###Adjency
+The adjacency between two genes when building a network based on correlated gene expression profiles is basically the value of the correlation between the genes disregarding the negative or positive sign. Specifically for WGCNA to arrive at the adjency measure, the absolute correlation is raised to a value Beta, referred to as the power, which leads to higher correlations being emphasizesed at the expense of lower.
+
+```{r Code chunk 2 8}
+ADJ1=abs(cor(dat_expr,use="p"))^6
+Alldegrees1=intramodularConnectivity(ADJ1, colorh1)
+head(Alldegrees1)
+
+```
+
+## Create table of gene significance for selected trait and intramodular connectivity
+```{r r Code chunk 2.1 8 Write Gene significance and different measures of connectivity to file}
+#add gene significance to table
+significance_and_connectivity <- cbind(Alldegrees1, GeneSignificance)
+library(data.table)
+# Insert rownames as column, not to loose them
+setDT(significance_and_connectivity, keep.rownames = "gene")[]
+#create filename
+fileName = paste("./out",name_of_analysis,"/significance_and_connectivity",interesting_clin_out,".csv", sep="");
+#write to file
+write.table(significance_and_connectivity, file = fileName, sep = ",", quote = TRUE, row.names = FALSE)
+
+```
+
+
+## Relationship between gene significance and intramodular connectivity (7.b in tutorial)
+### Plot connectivity vs gene significance (figure 1 tutorial)
+For all interesting modules plot connectivity vs gene significance
+See Figure \@ref(fig:fig10) 
+Gene significance is plotted against intramodular connectivity module by module
+
+```{r Code chunk 3 8, echo=FALSE}
+##Plot to file
+colorlevels=unique(colorh1)[1:10]
+tiff(paste("./plots",name_of_analysis,"/10_connectivity_vs_gene_significance",interesting_clin_out,".tif", sep=""), height = 9, width = 9, units = 'in', res=300) #
+#sizeGrWindow(9,6)
+par(mfrow=c(2,as.integer(0.5+length(colorlevels)/2)))
+par(mar = c(4,5,3,1))
+for (i in c(1:length(colorlevels))) 
+{
+  whichmodule=colorlevels[[i]]; 
+  restrict1 = (colorh1==whichmodule);
+  verboseScatterplot(Alldegrees1$kWithin[restrict1], 
+                     GeneSignificance[restrict1], col=colorh1[restrict1],
+                     main=whichmodule, 
+                     xlab = "Connectivity", ylab = "Gene Significance", abline = TRUE)
+}
+
+dev.off()
+
+# #ONly used when to many modules for one plot
+# tiff(paste("./plots",name_of_analysis,"/09_connectivity_vs_gene_significance_a.tif", sep=""), height = 9, width = 9, units = 'in', res=300) #
+# #sizeGrWindow(9,6)
+# par(mfrow=c(2,as.integer(0.5+length(colorlevels)/4)))
+# par(mar = c(4,5,3,1))
+# for (i in c(1:10)) 
+# {
+#   whichmodule=colorlevels[[i]]; 
+#   restrict1 = (colorh1==whichmodule);
+#   verboseScatterplot(Alldegrees1$kWithin[restrict1], 
+#                      GeneSignificance[restrict1], col=colorh1[restrict1],
+#                      main=whichmodule, 
+#                      xlab = "Connectivity", ylab = "Gene Significance", abline = TRUE)
+# }
+# 
+# dev.off()
+# tiff(paste("./plots",name_of_analysis,"/09_connectivity_vs_gene_significance_b.tif", sep=""), height = 9, width = 9, units = 'in', res=300) #
+# #sizeGrWindow(9,6)
+# par(mfrow=c(2,as.integer(0.5+length(colorlevels)/4)))
+# par(mar = c(4,5,3,1))
+# for (i in c(12:21)) 
+# {
+#   whichmodule=colorlevels[[i]]; 
+#   restrict1 = (colorh1==whichmodule);
+#   verboseScatterplot(Alldegrees1$kWithin[restrict1], 
+#                      GeneSignificance[restrict1], col=colorh1[restrict1],
+#                      main=whichmodule, 
+#                      xlab = "Connectivity", ylab = "Gene Significance", abline = TRUE)
+# }
+# 
+# dev.off()
+```
+
+
+
+```{r fig10, fig.cap="Connectivity vs Gene Significance", echo=FALSE}
+#Which modules are interesting, should be plotted. Get from saved vector.
+colorlevels=module_col_of_int#unique(colorh1)#module_col_of_int
+#tiff(paste("./plots",name_of_analysis,"/10_connectivity_vs_gene_significance.tif", sep=""), height = 9, width = 9, units = 'in', res=300) #
+#sizeGrWindow(9,6)
+par(mfrow=c(2,as.integer(0.5+length(colorlevels)/2)))
+par(mar = c(4,5,3,1))
+#Loop through interesting moduls
+for (i in c(1:length(colorlevels))) 
+{
+  whichmodule=colorlevels[[i]]; 
+  restrict1 = (colorh1==whichmodule);
+  verboseScatterplot(Alldegrees1$kWithin[restrict1], 
+                     GeneSignificance[restrict1], col=colorh1[restrict1],
+                     main=whichmodule, 
+                     xlab = "Connectivity", ylab = paste("Gene Significance_",interesting_clin_out,sep=""), abline = TRUE)
+}
+```
+
+
+## Calculate a module eigengene-based connectivity measure for each gene (Section 7c tutorial)
+```{r Code chunk 4 8, include=FALSE}
+# signedKME calculates eigengene-based connectivity, also known as module membership
+datKME=signedKME(dat_expr, datME, outputColumnName="MM.")
+# Display the first few rows of the data frame
+head(datKME)
+```
+
+
+## Finding genes with high gene significance and high intramodular connectivity in interesting modules and write those hub genes to file (section 7.d in tutorial)
+
+### Here we are actually selecting genes with high eigengene correlation and high correaltion to clinicla trait (gene trait significance)
+
+From the data frame/table generated in previous step it is now possible to filter out genes that have high gene significance and high intramodular connectivity Within the module of interest. From the code below it can be seen that we use a filter specifying that  absolut value of gene significanse should be higher that 0.2 and FilterGenes= abs(GS1)> .2 & abs(datKME[[col_to_select]])>0.8
+
+```{r Code chunk 5 8, include=FALSE}
+for (module_of_int in module_col_of_int){
+  GS_threshold <- 0.2
+  MM_threshold <- 0.8
+  col_to_select <- paste("MM.",module_of_int, sep="")
+  #Replace FilterGenes= abs(GS1)> .2 & abs(datKME$datKME$MM.yellow)>.8 with:
+  FilterGenes= abs(GS1)> .2 & abs(datKME[[col_to_select]])>.8
+  table(FilterGenes)
+  module.hubgenes <- dimnames(data.frame(dat_expr))[[2]][FilterGenes]
+  fileName = paste("./out",name_of_analysis,"/hubgenes/",interesting_clin_out,"_",module_of_int,"_GSt_",GS_threshold,"_MMt_",MM_threshold,".hubgenes.csv", sep="");
+  write.table(module.hubgenes, file = fileName, sep = ",", quote = TRUE, row.names = FALSE)
+
+}
+
+```
+
+The genes that was filtered in:
+
+```{r Code chunk 7 8, include=FALSE}
+dimnames(data.frame(dat_expr))[[2]][FilterGenes]
+
+```
+
+```{r Code chunk 8 8, include=FALSE}
+dimnames(data.frame(dat_expr))[[2]][FilterGenes]
+
+```
+## Gene screening method based on a detailed definition module membership
+### Here we are looking at 
+
+Not sure how this function complements "Finding genes with high gene significance and high intramodular connectivity" above. The output is also not associated with gene names. How should gene names be mapped?
+
+###
+
+I says in information page about this function: This function should be considered experimental. It takes into account both the "standard" and the network measures of gene importance for the trait.
+
+```
+Function networkScreening outputs the following:
+
+p.Weighted	
+weighted p-value of association with the trait
+
+q.Weighted	
+q-value (local FDR) calculated from p.Weighted
+
+cor.Weighted	
+correlation of trait with gene expression weighted by a network term
+
+Z.Weighted	
+Fisher Z score of the weighted correlation
+
+p.Standard	
+standard Student p-value of association of the gene with the trait
+
+q.Standard	
+q-value (local FDR) calculated from p.Standard
+
+cor.Standard	
+correlation of gene with the trait
+
+Z.Standard	
+Fisher Z score of the standard correlation
+```
+
+```{r, include=FALSE}
+NS1=networkScreening(y=values_interesting_clin_out, datME=datME, datExpr=dat_expr,
+         oddPower=3, blockSize=1000, minimumSampleSize=4,
+         addMEy=TRUE, removeDiag=FALSE, weightESy=0.5)
+```
+
+```{r Chunk 17 8, include=FALSE}
+# Create a data frame holding the results of gene screening
+GeneResultsNetworkScreening=data.frame(GeneName=row.names(NS1), NS1)
+# Write the data frame into a file
+write.table(GeneResultsNetworkScreening, file=paste("./out",name_of_analysis,"/hubgenes/GeneResultsNetworkScreening/",interesting_clin_out,"_GeneResultsNetworkScreening.csv",sep=""),row.names=F,sep=",")
+# Output of eigengene information:
+datMEvalues_interesting_clin_out = data.frame(values_interesting_clin_out, datME)
+eigengeneSignificance = cor(datMEvalues_interesting_clin_out, values_interesting_clin_out, use = 'pairwise.complete.obs');
+eigengeneSignificance[1,1] = (1+max(eigengeneSignificance[-1, 1]))/2
+eigengeneSignificance.pvalue = corPvalueStudent(eigengeneSignificance, nSamples = length(values_interesting_clin_out))
+namesME=names(datMEvalues_interesting_clin_out)
+# Form a summary data frame
+out1=data.frame(t(data.frame(eigengeneSignificance,
+eigengeneSignificance.pvalue, namesME, t(datMEvalues_interesting_clin_out))))
+# Set appropriate row names
+dimnames(out1)[[1]][1]="EigengeneSignificance"
+dimnames(out1)[[1]][2]="EigengeneSignificancePvalue"
+dimnames(out1)[[1]][3]="ModuleEigengeneName"
+dimnames(out1)[[1]][-c(1:3)]=dimnames(dat_expr)[[1]]
+# Write the data frame into a file
+write.table(out1, file=paste("./out",name_of_analysis,"/hubgenes/MEResultsNetworkScreening/",interesting_clin_out,"_MEResultsNetworkScreening.csv",sep=""), row.names=TRUE, col.names = TRUE, sep=",")
+# Display the first few rows:
+head(out1)
+
+```
+
+
+<!-- ## Write out Eigen gene table -->
+```{r chunk 18 8, include=FALSE}
+# # Create a data frame holding the results of gene screening
+# GeneResultsNetworkScreening=data.frame(GeneName=row.names(NS1), NS1)
+# # Write the data frame into a file
+# write.table(GeneResultsNetworkScreening, file="GeneResultsNetworkScreening.csv",
+# row.names=F,sep=",")
+# # Output of eigengene information:
+# datMEy = data.frame(y, datME)
+# eigengeneSignificance = cor(datMEy, y);
+# eigengeneSignificance[1,1] = (1+max(eigengeneSignificance[-1, 1]))/2
+# eigengeneSignificance.pvalue = corPvalueStudent(eigengeneSignificance, nSamples = length(y))
+# namesME=names(datMEy)
+# # Form a summary data frame
+# out1=data.frame(t(data.frame(eigengeneSignificance,
+# eigengeneSignificance.pvalue, namesME, t(datMEy))))
+# # Set appropriate row names
+# dimnames(out1)[[1]][1]="EigengeneSignificance"
+# dimnames(out1)[[1]][2]="EigengeneSignificancePvalue"
+# dimnames(out1)[[1]][3]="ModuleEigengeneName"
+# dimnames(out1)[[1]][-c(1:3)]=dimnames(datExpr)[[1]]
+# # Write the data frame into a file
+# write.table(out1, file="MEResultsNetworkScreening.csv", row.names=TRUE, col.names = TRUE, sep=",")
+# # Display the first few rows:
+# head(out1)
+
+```
+## Write hub genes to file
+```{r chunk 19 9, include=FALSE}
+# # Perform network screening
+# NS1GS=networkScreeningGS(datExpr=dat_expr, datME = datME, GS=GS1)
+# # Organize its results for easier plotting
+# GSprediction1=data.frame(GS1,NS1GS$GS.Weighted)
+# GS.Weighted=NS1GS$GS.Weighted
+# # Plot a comparison between standard gene significance and network-weighted gene significance
+# sizeGrWindow(8, 6)
+# par(mfrow=c(1,1))
+# verboseScatterplot(GS1, GS.Weighted, 
+#                    main="Weighted gene significance vs. the standard GS\n",
+#                    col=truemodule)
+# abline(0,1)
+```
+
+<!-- positively_related_modules_and_clin_outcomes  -->
+
+<!-- #What is the interesting trait/outcome -->
+<!-- interesting_clin_out = "HCA_nar" -->
+<!-- # In tutorial y represents the vector of  values for a sample trait. It is generated in section 1. In this script it is referred to as values_interesting_clin_out -->
+<!-- values_interesting_clin_out=clin_out[[interesting_clin_out]] #$Sort_infl_birth#S100As_2 -->
+<!-- #from file/chapter6 -->
+<!-- #What is gene significance for that trait/outcome -->
+<!-- GS1=as.numeric(cor(values_interesting_clin_out,dat_expr, use="p")) -->
+<!-- #What is non-signed gene significane for trait -->
+<!-- GeneSignificance=abs(GS1) -->
+
+## Halfdans method to write to 5% genes with highest intramodular connectivity kWithin to file for each clinical outcome and module
+### Hub genes in module with positive correlation to clinicla outcomes
+Here we are also generating a list of alarmin_124_coreg that ar found in "postive" hub genes
+
+```{r chunk 19a 9 Halfdans method to write to 5% genes, include=FALSE}
+alarmin_124_coreg <- as.matrix(read.csv("./data/124_genes_correlated_with_alarmins"))
+interesting_outcomes <- unique(positively_related_modules_and_clin_outcomes$clin_out_pos_cor)
+clin_outs_mod_hub <- data.frame()
+for (interesting_clin_out in interesting_outcomes ) {
+  values_interesting_clin_out = clin_out[[interesting_clin_out]]
+  clin_out_mod_hub <- data.frame()
+  #What is gene significance for that trait/outcome
+  GS1=as.numeric(cor(values_interesting_clin_out,dat_expr, use="p"))
+  #What is non-signed gene significane for trait
+  GeneSignificance=abs(GS1)
+  
+  interesting_modules <- dplyr::filter(positively_related_modules_and_clin_outcomes,clin_out_pos_cor==interesting_clin_out)$mods_pos_cor
+  colorlevels=interesting_modules
+  for (i in c(1:length(colorlevels))) {
+    whichmodule=colorlevels[[i]];
+    restrict1 = (colorh1==whichmodule);
+      
+    #What are the moduel eigengenes
+    datME=moduleEigengenes(dat_expr,colorh1)$eigengenes
+    # signedKME calculates eigengene-based connectivity, also known as module membership
+    datKME=signedKME(dat_expr, datME, outputColumnName="MM.")
+    datKME_mod_name <- paste("MM.",whichmodule,sep="")
+    
+    kWithin_GS_MM.0 <- data.frame(row.names(Alldegrees1)[restrict1],Alldegrees1$kWithin[restrict1],GeneSignificance[restrict1],datKME[,datKME_mod_name][restrict1])#, col=colorh1[restrict1],
+    names(kWithin_GS_MM.0) <- c("gene","kWithin_mod_connectivity","GeneOutcSignificance","datKME_ModularMembership")
+    kWithin_GS_MM.s <- kWithin_GS_MM.0[order(-kWithin_GS_MM.0$kWithin),]
+    #set filterng to top 5%
+    n_to_select <- dim(kWithin_GS_MM.s)[1]*0.05
+    print(n_to_select)
+    head(kWithin_GS_MM.s,n_to_select)
+    fn_filt <- paste("./out",name_of_analysis,"/hubgenes/kWithin_filt/pos_",interesting_clin_out,"_",whichmodule,"_kWithin_GS_MM_top_5_perc.csv",sep="")
+    fn_all <- paste("./out",name_of_analysis,"/hubgenes/kWithin_all/pos_",interesting_clin_out,"_",whichmodule,"_kWithin_GS_MM.csv",sep="")
+    # Write the data frame into a file
+    write.table(head(kWithin_GS_MM.s,n_to_select), file=fn_filt, row.names=F, col.names = TRUE, sep=",")
+    write.table(kWithin_GS_MM.s, file=fn_all, row.names=F, col.names = TRUE, sep=",")
+    clin_out_nod_hub.0 <- data.frame(rep(interesting_clin_out, n_to_select),rep(whichmodule, n_to_select), head(kWithin_GS_MM.s,n_to_select))
+    clin_out_mod_hub <- rbind(clin_out_mod_hub,clin_out_nod_hub.0)
+  }
+  clin_outs_mod_hub <- rbind(clin_outs_mod_hub,clin_out_mod_hub)
+}
+fn3 <- paste("./out",name_of_analysis,"/hubgenes/kWithin_filt/pos_list_of_all_hub_genes.csv",sep="")
+
+write.table(clin_outs_mod_hub, file=fn3, row.names=F, col.names = TRUE, sep=",")
+
+fn_124 <- paste("./out",name_of_analysis,"/hubgenes/kWithin_filt/pos_list_of_hub_in_124_genes.csv",sep="")
+write.table(dplyr::filter(clin_outs_mod_hub,gene%in%alarmin_124_coreg), file=fn_124, row.names=F, col.names = TRUE, sep=",")
+genes_124_in_pos <- dplyr::filter(clin_outs_mod_hub,gene%in%alarmin_124_coreg)
+unique_genes_124_in_pos <- unique(genes_124_in_pos$gene)
+```
+
+See Table \@ref(tab:tab4)
+```{r tab4, echo=F}
+kable(unique_genes_124_in_pos, caption="Unique genes 124 in pos")
+```
+
+
+### Hub genes in modules with negative correlation to clinicla outcomes
+Here we are also generating a list of alarmin_124_coreg that ar found in "negative" hub genes
+
+```{r chunk 19b 9 Halfdans method to write to 5% genes, include=FALSE}
+interesting_outcomes <- unique(negatively_related_modules_and_clin_outcomes$clin_out_neg_cor)
+clin_outs_mod_hub <- data.frame()
+for (interesting_clin_out in interesting_outcomes ) {
+  values_interesting_clin_out = clin_out[[interesting_clin_out]]
+  clin_out_mod_hub <- data.frame()
+  #What is gene significance for that trait/outcome
+  GS1=as.numeric(cor(values_interesting_clin_out,dat_expr, use="p"))
+  #What is non-signed gene significane for trait
+  GeneSignificance=abs(GS1)
+  
+  interesting_modules <- dplyr::filter(negatively_related_modules_and_clin_outcomes,clin_out_neg_cor==interesting_clin_out)$mods_neg_cor
+  colorlevels=interesting_modules
+  for (i in c(1:length(colorlevels))) {
+    whichmodule=colorlevels[[i]];
+    restrict1 = (colorh1==whichmodule);
+    
+        
+    #What are the moduel eigengenes
+    datME=moduleEigengenes(dat_expr,colorh1)$eigengenes
+    # signedKME calculates eigengene-based connectivity, also known as module membership
+    datKME=signedKME(dat_expr, datME, outputColumnName="MM.")
+    datKME_mod_name <- paste("MM.",whichmodule,sep="")
+    
+    
+    kWithin_GS_MM.0 <- data.frame(row.names(Alldegrees1)[restrict1],Alldegrees1$kWithin[restrict1],GeneSignificance[restrict1],datKME[,datKME_mod_name][restrict1])#, col=colorh1[restrict1],
+    names(kWithin_GS_MM.0) <- c("gene","kWithin_mod_connectivity","GeneOutcSignificance","datKME_ModularMembership")
+    kWithin_GS_MM.s <- kWithin_GS_MM.0[order(-kWithin_GS_MM.0$kWithin),]
+    #set filterng to top 5%
+    n_to_select <- dim(kWithin_GS_MM.s)[1]*0.05
+    print(n_to_select)
+    head(kWithin_GS_MM.s,n_to_select)
+    fn_filt <- paste("./out",name_of_analysis,"/hubgenes/kWithin_filt/neg_",interesting_clin_out,"_",whichmodule,"_kWithin_GS_MM_top_5_perc.csv",sep="")
+    fn_all <- paste("./out",name_of_analysis,"/hubgenes/kWithin_all/neg_",interesting_clin_out,"_",whichmodule,"_kWithin_GS_MM.csv",sep="")
+    # Write the data frame into a file
+    write.table(head(kWithin_GS_MM.s,n_to_select), file=fn_filt, row.names=F, col.names = TRUE, sep=",")
+    write.table(kWithin_GS_MM.s, file=fn_all, row.names=F, col.names = TRUE, sep=",")
+    clin_out_nod_hub.0 <- data.frame(rep(interesting_clin_out, n_to_select),rep(whichmodule, n_to_select), head(kWithin_GS_MM.s,n_to_select))
+    clin_out_mod_hub <- rbind(clin_out_mod_hub,clin_out_nod_hub.0)
+  }
+  clin_outs_mod_hub <- rbind(clin_outs_mod_hub,clin_out_mod_hub)
+}
+fn3 <- paste("./out",name_of_analysis,"/hubgenes/kWithin_filt/neg_list_of_all_hub_genes.csv",sep="")
+
+write.table(clin_outs_mod_hub, file=fn3, row.names=F, col.names = TRUE, sep=",")
+
+fn_124 <- paste("./out",name_of_analysis,"/hubgenes/kWithin_filt/neg_list_of_hub_in_124_genes.csv",sep="")
+write.table(dplyr::filter(clin_outs_mod_hub,gene%in%alarmin_124_coreg), file=fn_124, row.names=F, col.names = TRUE, sep=",")
+genes_124_in_neg <- dplyr::filter(clin_outs_mod_hub,gene%in%alarmin_124_coreg)
+unique_genes_124_in_neg <- unique(genes_124_in_neg$gene)
+
+```
+
+See Table \@ref(tab:tab5)
+```{r tab5, echo=F}
+kable(unique_genes_124_in_neg, caption="Unique genes 124 in neg")
+```
+
+## For all modules (also those not associated with any particular outcome)
+Never really got to this one
+
+```{r}
+# colorlevels <- row.names(moduleTraitPvalue.df)
+#   for (i in c(1:length(colorlevels))) {
+#     whichmodule=colorlevels[[i]];
+#     restrict1 = (colorh1==whichmodule);
+#       
+#     #What are the moduel eigengenes
+#     datME=moduleEigengenes(dat_expr,colorh1)$eigengenes
+#     # signedKME calculates eigengene-based connectivity, also known as module membership
+#     datKME=signedKME(dat_expr, datME, outputColumnName="MM.")
+#     datKME_mod_name <- paste("MM.",whichmodule,sep="")
+#     
+#     kWithin_GS_MM.0 <- data.frame(row.names(Alldegrees1)[restrict1],Alldegrees1$kWithin[restrict1],GeneSignificance[restrict1],datKME[,datKME_mod_name][restrict1])#, col=colorh1[restrict1],
+#     names(kWithin_GS_MM.0) <- c("gene","kWithin_mod_connectivity","GeneOutcSignificance","datKME_ModularMembership")
+#     kWithin_GS_MM.s <- kWithin_GS_MM.0[order(-kWithin_GS_MM.0$kWithin),]
+#     #set filterng to top 5%
+#     n_to_select <- dim(kWithin_GS_MM.s)[1]*0.05
+#     print(n_to_select)
+#     head(kWithin_GS_MM.s,n_to_select)
+#     fn_filt <- paste("./out",name_of_analysis,"/hubgenes_for_all_modules/kWithin_filt/pos_",interesting_clin_out,"_",whichmodule,"_kWithin_GS_MM_top_5_perc.csv",sep="")
+#     fn_all <- paste("./out",name_of_analysis,"/hubgenes_for_all_modules/kWithin_all/pos_",interesting_clin_out,"_",whichmodule,"_kWithin_GS_MM.csv",sep="")
+#     # Write the data frame into a file
+#     write.table(head(kWithin_GS_MM.s,n_to_select), file=fn_filt, row.names=F, col.names = TRUE, sep=",")
+#     write.table(kWithin_GS_MM.s,n_to_select, file=fn_all, row.names=F, col.names = TRUE, sep=",")
+#     }
+```
+
+
+
+
+
+
+
