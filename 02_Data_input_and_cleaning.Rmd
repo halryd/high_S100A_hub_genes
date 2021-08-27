@@ -1,5 +1,7 @@
 # Data input and cleaning {#data_input_and_cleaning}
 
+## Editing to try out branching with GitKraken
+
 <!-- ## Loading libraries, setting variables, creating directories  -->
 ```{r Code chunk 1 admin, include=FALSE}
 # Display the current working directory
