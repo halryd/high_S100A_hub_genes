@@ -2,6 +2,8 @@
 
 ## Editing to try out branching with GitKraken
 
+## Now I am making a second edit in a second branch
+
 <!-- ## Loading libraries, setting variables, creating directories  -->
 ```{r Code chunk 1 admin, include=FALSE}
 # Display the current working directory
